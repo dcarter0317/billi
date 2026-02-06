@@ -3,6 +3,7 @@ import { View, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-nat
 import { Text, List, Switch, useTheme, Divider, Button, Avatar } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { usePreferences } from '../../context/UserPreferencesContext';
+import { useUser } from '../../context/UserContext';
 import { useRouter } from 'expo-router';
 import {
     Moon,
@@ -27,6 +28,7 @@ export default function SettingsScreen() {
         toggleBiometrics,
         setCurrency
     } = usePreferences();
+    const { user } = useUser();
 
     const onToggleNotifications = (value: boolean) => {
         toggleNotifications();
@@ -70,11 +72,15 @@ export default function SettingsScreen() {
                 {/* Header / Profile Summary */}
                 <View style={styles.header}>
                     <Text variant="headlineMedium" style={styles.headerTitle}>Settings</Text>
-                    <TouchableOpacity style={styles.profileRow} onPress={() => console.log('Edit Profile')}>
-                        <Avatar.Image size={64} source={{ uri: 'https://i.pravatar.cc/150?img=12' }} />
+                    <TouchableOpacity style={styles.profileRow} onPress={() => router.push('/profile')}>
+                        {user.avatar ? (
+                            <Avatar.Image size={64} source={{ uri: user.avatar }} />
+                        ) : (
+                            <Avatar.Text size={64} label={user.name.charAt(0).toUpperCase()} />
+                        )}
                         <View style={styles.profileInfo}>
-                            <Text variant="titleLarge" style={{ fontWeight: 'bold' }}>Alex Johnson</Text>
-                            <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant }}>alex.johnson@example.com</Text>
+                            <Text variant="titleLarge" style={{ fontWeight: 'bold' }}>{user.name}</Text>
+                            <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant }}>{user.email}</Text>
                         </View>
                         <ChevronRight size={20} color={theme.colors.onSurfaceVariant} />
                     </TouchableOpacity>

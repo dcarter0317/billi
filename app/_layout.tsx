@@ -8,6 +8,7 @@ import { BilliTheme } from "../constants/theme";
 // Auth will be added back in Phase 2 (Backend Integration).
 
 import { BillProvider } from '../context/BillContext';
+import { UserProvider } from '../context/UserContext';
 
 import { BilliDarkTheme, BilliLightTheme } from "../constants/theme";
 import { UserPreferencesProvider, usePreferences } from "../context/UserPreferencesContext";
@@ -49,9 +50,11 @@ export default function RootLayout() {
         <SafeAreaProvider>
             <GestureHandlerRootView style={{ flex: 1 }}>
                 <UserPreferencesProvider>
-                    <BillProvider>
-                        <RootLayoutContent />
-                    </BillProvider>
+                    <UserProvider>
+                        <BillProvider>
+                            <RootLayoutContent />
+                        </BillProvider>
+                    </UserProvider>
                 </UserPreferencesProvider>
             </GestureHandlerRootView>
         </SafeAreaProvider>
