@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
-import { View, StyleSheet, TouchableOpacity, FlatList, Switch, KeyboardAvoidingView, Platform, Alert } from 'react-native';
-import { Text, Card, useTheme, FAB, Searchbar, IconButton } from 'react-native-paper';
+import { View, StyleSheet, TouchableOpacity, FlatList, Switch, KeyboardAvoidingView, Platform, Alert, ScrollView } from 'react-native';
+import { Text, Card, useTheme, FAB, Searchbar, IconButton, Menu, Divider, Checkbox, Button } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 
@@ -18,13 +18,18 @@ const parseDate = (dateStr: string) => {
     return new Date(year, month - 1, day);
 };
 
+const MONTHS = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+];
+
 // 14-day Pay Period Logic (Reference starting Monday)
 const PAY_CYCLE_START = new Date(2026, 0, 26); // Jan 26, 2026
-const getPayPeriodInterval = () => {
+const getPayPeriodInterval = (offset = 0) => {
     const now = new Date(2026, 1, 5); // Feb 5, 2026
     const diff = now.getTime() - PAY_CYCLE_START.getTime();
     const daysSinceStart = Math.floor(diff / (1000 * 60 * 60 * 24));
-    const periodsPassed = Math.floor(daysSinceStart / 14);
+    const periodsPassed = Math.floor(daysSinceStart / 14) + offset;
 
     const start = new Date(PAY_CYCLE_START);
     start.setDate(PAY_CYCLE_START.getDate() + (periodsPassed * 14));
@@ -57,10 +62,12 @@ const getBillStatusColor = (bill: Bill, theme: any) => {
 export default function BillsScreen() {
     const theme = useTheme();
     const router = useRouter();
-    const { bills, setBills, deleteBill: contextDeleteBill, toggleBillStatus } = useBills();
+    const { bills, setBills, deleteBill: contextDeleteBill, toggleBillStatus, toggleClearStatus, resetAllStatuses } = useBills();
     const { preferences } = usePreferences();
     const [searchQuery, setSearchQuery] = useState('');
-    const [filterPayPeriod, setFilterPayPeriod] = useState(false);
+    const [filterPeriod, setFilterPeriod] = useState<'last' | 'this' | 'next' | 'all' | 'monthly'>('all');
+    const [selectedMonth, setSelectedMonth] = useState(-1);
+    const [showMonthMenu, setShowMonthMenu] = useState(false);
 
     const currencySymbol = preferences.currency === 'EUR' ? '€' : '$';
 
@@ -79,20 +86,47 @@ export default function BillsScreen() {
         );
     };
 
-    const currentPeriod = useMemo(() => getPayPeriodInterval(), []);
+    const intervals = useMemo(() => ({
+        last: getPayPeriodInterval(-1),
+        this: getPayPeriodInterval(0),
+        next: getPayPeriodInterval(1),
+    }), []);
+
+    const handleReset = () => {
+        Alert.alert(
+            "Reset All Statuses",
+            "This will mark all bills as 'PAY' and uncheck all 'Payment Cleared' boxes. Are you sure?",
+            [
+                { text: "Cancel", style: "cancel" },
+                {
+                    text: "Reset",
+                    style: "destructive",
+                    onPress: () => {
+                        resetAllStatuses();
+                        setSelectedMonth(-1);
+                    }
+                }
+            ]
+        );
+    };
 
     const filteredBills = useMemo(() => {
         return bills.filter(bill => {
             const matchesSearch = bill.title.toLowerCase().includes(searchQuery.toLowerCase());
             if (!matchesSearch) return false;
 
-            if (filterPayPeriod) {
-                const billDate = parseDate(bill.dueDate);
-                return billDate >= currentPeriod.start && billDate <= currentPeriod.end;
+            if (filterPeriod === 'all') return true;
+
+            const billDate = parseDate(bill.dueDate);
+            if (filterPeriod === 'monthly') {
+                if (selectedMonth === -1) return true; // Show all for year if no month selected
+                return billDate.getMonth() === selectedMonth && billDate.getFullYear() === 2026;
             }
-            return true;
+
+            const interval = intervals[filterPeriod as keyof typeof intervals];
+            return billDate >= interval.start && billDate <= interval.end;
         });
-    }, [bills, searchQuery, filterPayPeriod, currentPeriod]);
+    }, [bills, searchQuery, filterPeriod, selectedMonth, intervals]);
 
     const paidTotal = useMemo(() => {
         return bills
@@ -105,7 +139,7 @@ export default function BillsScreen() {
         <ScaleDecorator>
             <TouchableOpacity
                 onLongPress={drag}
-                disabled={isActive || searchQuery.length > 0 || filterPayPeriod}
+                disabled={isActive || searchQuery.length > 0 || filterPeriod !== 'all'}
                 activeOpacity={1}
             >
                 <Card style={[
@@ -119,6 +153,15 @@ export default function BillsScreen() {
                             <View style={styles.categoryBadge}>
                                 <Text variant="labelSmall" style={styles.categoryText}>{item.category}</Text>
                             </View>
+                            <Button
+                                mode="contained"
+                                onPress={() => Alert.alert('Payment', `Redirecting to payment for ${item.title}...`)}
+                                style={[styles.paymentButton, { backgroundColor: theme.colors.primary }]}
+                                labelStyle={{ fontSize: 10, fontWeight: 'bold' }}
+                                compact
+                            >
+                                MAKE PAYMENT
+                            </Button>
                         </View>
                         <View style={styles.cardRight}>
                             <View style={styles.amountRow}>
@@ -135,6 +178,8 @@ export default function BillsScreen() {
                                             amount: item.amount,
                                             dueDate: item.dueDate,
                                             category: item.category,
+                                            isPaid: String(item.isPaid),
+                                            isCleared: String(item.isCleared),
                                             isEdit: 'true'
                                         }
                                     })}
@@ -155,25 +200,35 @@ export default function BillsScreen() {
                                 />
                             </View>
                             <View style={styles.statusContainer}>
-                                <Text
-                                    variant="labelSmall"
-                                    style={[
-                                        styles.statusLabel,
-                                        { color: getBillStatusColor(item, theme) }
-                                    ]}
-                                >
-                                    {item.isPaid ? 'PAID' : 'PAY'}
-                                </Text>
-                                <Switch
-                                    value={item.isPaid}
-                                    onValueChange={() => toggleBillStatus(item.id)}
-                                    trackColor={{
-                                        false: getBillStatusColor(item, theme),
-                                        true: (theme.colors as any).success || theme.colors.primary
-                                    }}
-                                    thumbColor="#fff"
-                                    ios_backgroundColor={getBillStatusColor(item, theme)}
-                                />
+                                <View style={styles.payRow}>
+                                    <Text
+                                        variant="labelSmall"
+                                        style={[
+                                            styles.statusLabel,
+                                            { color: getBillStatusColor(item, theme) }
+                                        ]}
+                                    >
+                                        {item.isPaid ? 'PAID' : 'PAY'}
+                                    </Text>
+                                    <Switch
+                                        value={item.isPaid}
+                                        onValueChange={() => toggleBillStatus(item.id)}
+                                        trackColor={{
+                                            false: getBillStatusColor(item, theme),
+                                            true: (theme.colors as any).success || theme.colors.primary
+                                        }}
+                                        thumbColor="#fff"
+                                        ios_backgroundColor={getBillStatusColor(item, theme)}
+                                    />
+                                </View>
+                                <View style={styles.clearedRow}>
+                                    <Checkbox.Android
+                                        status={item.isCleared ? 'checked' : 'unchecked'}
+                                        onPress={() => toggleClearStatus(item.id)}
+                                        color={(theme.colors as any).success || theme.colors.primary}
+                                    />
+                                    <Text variant="labelSmall" style={styles.clearedText}>Payment Cleared</Text>
+                                </View>
                             </View>
                         </View>
                     </Card.Content>
@@ -192,7 +247,7 @@ export default function BillsScreen() {
                     data={filteredBills}
                     onDragEnd={({ data }) => {
                         // Only update main bills list if we're not filtering
-                        if (searchQuery.length === 0 && !filterPayPeriod) {
+                        if (searchQuery.length === 0 && filterPeriod === 'all') {
                             setBills(data);
                         }
                     }}
@@ -202,19 +257,18 @@ export default function BillsScreen() {
                         <View>
                             <View style={styles.header}>
                                 <View style={styles.headerTop}>
-                                    <View>
+                                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                                         <Text variant="headlineMedium" style={{ fontWeight: 'bold' }}>My Bills</Text>
-                                        <TouchableOpacity
-                                            onPress={() => setFilterPayPeriod(!filterPayPeriod)}
-                                            style={[
-                                                styles.periodToggle,
-                                                filterPayPeriod && { backgroundColor: theme.colors.primaryContainer }
-                                            ]}
+                                        <Button
+                                            mode="text"
+                                            compact
+                                            onPress={handleReset}
+                                            icon="refresh"
+                                            labelStyle={{ fontSize: 13, fontWeight: 'bold' }}
+                                            style={{ marginLeft: 4 }}
                                         >
-                                            <Text variant="labelMedium" style={{ color: filterPayPeriod ? theme.colors.onPrimaryContainer : theme.colors.onSurfaceVariant }}>
-                                                {filterPayPeriod ? 'Showing This Pay Period' : 'Show All Bills'}
-                                            </Text>
-                                        </TouchableOpacity>
+                                            RESET
+                                        </Button>
                                     </View>
                                     <Card style={[styles.totalCard, { backgroundColor: theme.colors.surfaceVariant }]}>
                                         <Card.Content style={styles.totalContent}>
@@ -223,6 +277,83 @@ export default function BillsScreen() {
                                         </Card.Content>
                                     </Card>
                                 </View>
+
+                                <View style={styles.monthlyFilterRow}>
+                                    <Menu
+                                        visible={showMonthMenu}
+                                        onDismiss={() => setShowMonthMenu(false)}
+                                        anchor={
+                                            <TouchableOpacity
+                                                onPress={() => {
+                                                    setFilterPeriod('monthly');
+                                                    setShowMonthMenu(true);
+                                                }}
+                                                style={[
+                                                    styles.filterChip,
+                                                    filterPeriod === 'monthly' && { backgroundColor: theme.colors.primaryContainer }
+                                                ]}
+                                            >
+                                                <Text
+                                                    variant="labelSmall"
+                                                    style={[
+                                                        styles.filterChipText,
+                                                        { color: filterPeriod === 'monthly' ? theme.colors.onPrimaryContainer : theme.colors.onSurfaceVariant }
+                                                    ]}
+                                                >
+                                                    {selectedMonth === -1 ? 'Select Month' : MONTHS[selectedMonth]}
+                                                </Text>
+                                            </TouchableOpacity>
+                                        }
+                                    >
+                                        <ScrollView style={{ maxHeight: 300 }}>
+                                            <Menu.Item
+                                                onPress={() => {
+                                                    setSelectedMonth(-1);
+                                                    setFilterPeriod('monthly');
+                                                    setShowMonthMenu(false);
+                                                }}
+                                                title="Select Month"
+                                                leadingIcon={selectedMonth === -1 ? 'check' : undefined}
+                                            />
+                                            <Divider />
+                                            {MONTHS.map((month, index) => (
+                                                <Menu.Item
+                                                    key={month}
+                                                    onPress={() => {
+                                                        setSelectedMonth(index);
+                                                        setFilterPeriod('monthly');
+                                                        setShowMonthMenu(false);
+                                                    }}
+                                                    title={month}
+                                                    leadingIcon={selectedMonth === index ? 'check' : undefined}
+                                                />
+                                            ))}
+                                        </ScrollView>
+                                    </Menu>
+                                </View>
+
+                                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll}>
+                                    {(['last', 'this', 'next', 'all'] as const).map((period) => (
+                                        <TouchableOpacity
+                                            key={period}
+                                            onPress={() => setFilterPeriod(period)}
+                                            style={[
+                                                styles.filterChip,
+                                                filterPeriod === period && { backgroundColor: theme.colors.primaryContainer }
+                                            ]}
+                                        >
+                                            <Text
+                                                variant="labelSmall"
+                                                style={[
+                                                    styles.filterChipText,
+                                                    { color: filterPeriod === period ? theme.colors.onPrimaryContainer : theme.colors.onSurfaceVariant }
+                                                ]}
+                                            >
+                                                {period === 'last' ? 'Last Pay Period' : period === 'this' ? 'Current Pay Period' : period === 'next' ? 'Next Pay Period' : 'All Bills'}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    ))}
+                                </ScrollView>
                             </View>
 
                             <Searchbar
@@ -232,15 +363,21 @@ export default function BillsScreen() {
                                 style={styles.searchBar}
                             />
 
-                            {searchQuery.length === 0 && !filterPayPeriod && (
+                            {searchQuery.length === 0 && filterPeriod === 'all' && (
                                 <Text variant="labelSmall" style={styles.helperText}>
                                     Long press to reorder
                                 </Text>
                             )}
 
-                            {filterPayPeriod && (
+                            {filterPeriod !== 'all' && filterPeriod !== 'monthly' && (
                                 <Text variant="labelSmall" style={styles.helperText}>
-                                    Filtering: {currentPeriod.start.toLocaleDateString()} - {currentPeriod.end.toLocaleDateString()}
+                                    Filtering: {intervals[filterPeriod as keyof typeof intervals].start.toLocaleDateString()} - {intervals[filterPeriod as keyof typeof intervals].end.toLocaleDateString()}
+                                </Text>
+                            )}
+
+                            {filterPeriod === 'monthly' && (
+                                <Text variant="labelSmall" style={styles.helperText}>
+                                    Showing bills for {MONTHS[selectedMonth]} 2026
                                 </Text>
                             )}
                         </View>
@@ -272,13 +409,25 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
+        marginBottom: 16,
     },
-    periodToggle: {
+    filterScroll: {
         marginTop: 4,
+    },
+    monthlyFilterRow: {
+        marginTop: 8,
+    },
+    filterChip: {
         paddingVertical: 4,
-        paddingHorizontal: 8,
-        borderRadius: 8,
-        alignSelf: 'flex-start',
+        paddingHorizontal: 10,
+        borderRadius: 12,
+        marginRight: 8,
+        borderWidth: 1,
+        borderColor: 'rgba(0,0,0,0.05)',
+    },
+    filterChipText: {
+        textTransform: 'capitalize',
+        fontWeight: 'bold',
     },
     totalCard: {
         borderRadius: 8,
@@ -323,6 +472,12 @@ const styles = StyleSheet.create({
         backgroundColor: 'rgba(0,0,0,0.1)',
         borderRadius: 4,
         alignSelf: 'flex-start',
+        marginBottom: 8,
+    },
+    paymentButton: {
+        marginTop: 4,
+        borderRadius: 6,
+        alignSelf: 'flex-start',
     },
     categoryText: {
         color: '#E65100', // Darker Orange for better contrast
@@ -354,6 +509,9 @@ const styles = StyleSheet.create({
         borderRadius: 20,
     },
     statusContainer: {
+        alignItems: 'flex-end',
+    },
+    payRow: {
         flexDirection: 'row',
         alignItems: 'center',
     },
@@ -361,6 +519,15 @@ const styles = StyleSheet.create({
         marginRight: 4,
         fontWeight: 'bold',
         letterSpacing: 0.5,
+    },
+    clearedRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginTop: -4,
+    },
+    clearedText: {
+        marginLeft: -4,
+        opacity: 0.8,
     },
     fab: {
         position: 'absolute',

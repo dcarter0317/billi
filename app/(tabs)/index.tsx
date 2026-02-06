@@ -1,9 +1,14 @@
 import React, { useState, useMemo } from 'react';
 import { View, ScrollView, StyleSheet, TouchableOpacity } from 'react-native';
-import { Text, Card, useTheme, Button, Avatar } from 'react-native-paper';
+import { Text, Card, useTheme, Button, Avatar, Menu, Divider } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useBills, Bill } from '../../context/BillContext';
 import { usePreferences } from '../../context/UserPreferencesContext';
+
+const MONTHS = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+];
 
 // Sync with bills.tsx logic (MM-DD-YYYY)
 const parseDate = (dateStr: string) => {
@@ -11,15 +16,18 @@ const parseDate = (dateStr: string) => {
     return new Date(year, month - 1, day);
 };
 const PAY_CYCLE_START = new Date(2026, 0, 26); // Jan 26, 2026
-const getPayPeriodInterval = () => {
+const getPayPeriodInterval = (offset = 0) => {
     const now = new Date(2026, 1, 5); // Feb 5, 2026
     const diff = now.getTime() - PAY_CYCLE_START.getTime();
     const daysSinceStart = Math.floor(diff / (1000 * 60 * 60 * 24));
-    const periodsPassed = Math.floor(daysSinceStart / 14);
+    const periodsPassed = Math.floor(daysSinceStart / 14) + offset;
+
     const start = new Date(PAY_CYCLE_START);
     start.setDate(PAY_CYCLE_START.getDate() + (periodsPassed * 14));
+
     const end = new Date(start);
     end.setDate(start.getDate() + 13);
+
     return { start, end };
 };
 
@@ -46,24 +54,35 @@ export default function HomeScreen() {
     const theme = useTheme();
     const { bills } = useBills();
     const { preferences } = usePreferences();
-    const [filterPayPeriod, setFilterPayPeriod] = useState(true);
+    const [filterPeriod, setFilterPeriod] = useState<'last' | 'this' | 'next' | 'all' | 'monthly'>('this');
+    const [selectedMonth, setSelectedMonth] = useState(-1);
+    const [showMonthMenu, setShowMonthMenu] = useState(false);
 
     const currencySymbol = preferences.currency === 'EUR' ? '€' : '$';
 
-    const currentPeriod = useMemo(() => getPayPeriodInterval(), []);
+    const intervals = useMemo(() => ({
+        last: getPayPeriodInterval(-1),
+        this: getPayPeriodInterval(0),
+        next: getPayPeriodInterval(1),
+    }), []);
 
     const upcomingBills = useMemo(() => {
         return bills
             .filter(bill => !bill.isPaid) // Only show unpaid on home
             .filter(bill => {
-                if (filterPayPeriod) {
-                    const billDate = parseDate(bill.dueDate);
-                    return billDate >= currentPeriod.start && billDate <= currentPeriod.end;
+                if (filterPeriod === 'all') return true;
+
+                const billDate = parseDate(bill.dueDate);
+                if (filterPeriod === 'monthly') {
+                    if (selectedMonth === -1) return true; // Show all for year if no month selected
+                    return billDate.getMonth() === selectedMonth && billDate.getFullYear() === 2026;
                 }
-                return true;
+
+                const interval = intervals[filterPeriod as keyof typeof intervals];
+                return billDate >= interval.start && billDate <= interval.end;
             })
             .sort((a, b) => parseDate(a.dueDate).getTime() - parseDate(b.dueDate).getTime());
-    }, [filterPayPeriod, currentPeriod, bills]);
+    }, [filterPeriod, selectedMonth, intervals, bills]);
 
     return (
         <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
@@ -95,22 +114,97 @@ export default function HomeScreen() {
 
                 {/* Up Next Section */}
                 <View style={styles.sectionHeader}>
-                    <View>
-                        <Text variant="titleLarge" style={{ fontWeight: 'bold' }}>Up Next</Text>
-                        <TouchableOpacity
-                            onPress={() => setFilterPayPeriod(!filterPayPeriod)}
-                            style={[
-                                styles.periodToggle,
-                                filterPayPeriod && { backgroundColor: theme.colors.primaryContainer }
-                            ]}
-                        >
-                            <Text variant="labelSmall" style={{ color: filterPayPeriod ? theme.colors.onPrimaryContainer : theme.colors.onSurfaceVariant }}>
-                                {filterPayPeriod ? 'This Pay Period' : 'Show All'}
-                            </Text>
-                        </TouchableOpacity>
+                    <View style={{ flex: 1 }}>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                            <Text variant="titleLarge" style={{ fontWeight: 'bold' }}>Up Next</Text>
+                            <Menu
+                                visible={showMonthMenu}
+                                onDismiss={() => setShowMonthMenu(false)}
+                                anchor={
+                                    <TouchableOpacity
+                                        onPress={() => {
+                                            setFilterPeriod('monthly');
+                                            setShowMonthMenu(true);
+                                        }}
+                                        style={[
+                                            styles.filterChip,
+                                            filterPeriod === 'monthly' && { backgroundColor: theme.colors.primaryContainer }
+                                        ]}
+                                    >
+                                        <Text
+                                            variant="labelSmall"
+                                            style={[
+                                                styles.filterChipText,
+                                                { color: filterPeriod === 'monthly' ? theme.colors.onPrimaryContainer : theme.colors.onSurfaceVariant }
+                                            ]}
+                                        >
+                                            {selectedMonth === -1 ? 'Select Month' : MONTHS[selectedMonth]}
+                                        </Text>
+                                    </TouchableOpacity>
+                                }
+                            >
+                                <ScrollView style={{ maxHeight: 300 }}>
+                                    <Menu.Item
+                                        onPress={() => {
+                                            setSelectedMonth(-1);
+                                            setFilterPeriod('monthly');
+                                            setShowMonthMenu(false);
+                                        }}
+                                        title="Select Month"
+                                        leadingIcon={selectedMonth === -1 ? 'check' : undefined}
+                                    />
+                                    <Divider />
+                                    {MONTHS.map((month, index) => (
+                                        <Menu.Item
+                                            key={month}
+                                            onPress={() => {
+                                                setSelectedMonth(index);
+                                                setFilterPeriod('monthly');
+                                                setShowMonthMenu(false);
+                                            }}
+                                            title={month}
+                                            leadingIcon={selectedMonth === index ? 'check' : undefined}
+                                        />
+                                    ))}
+                                </ScrollView>
+                            </Menu>
+                        </View>
+                        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll}>
+                            {(['last', 'this', 'next', 'all'] as const).map((period) => (
+                                <TouchableOpacity
+                                    key={period}
+                                    onPress={() => setFilterPeriod(period)}
+                                    style={[
+                                        styles.filterChip,
+                                        filterPeriod === period && { backgroundColor: theme.colors.primaryContainer }
+                                    ]}
+                                >
+                                    <Text
+                                        variant="labelSmall"
+                                        style={[
+                                            styles.filterChipText,
+                                            { color: filterPeriod === period ? theme.colors.onPrimaryContainer : theme.colors.onSurfaceVariant }
+                                        ]}
+                                    >
+                                        {period === 'last' ? 'Last Pay Period' : period === 'this' ? 'Current Pay Period' : period === 'next' ? 'Next Pay Period' : 'All Bills'}
+                                    </Text>
+                                </TouchableOpacity>
+                            ))}
+                        </ScrollView>
                     </View>
-                    <Button mode="text">See All</Button>
                 </View>
+
+                {filterPeriod !== 'all' && filterPeriod !== 'monthly' && (
+                    <Text variant="labelSmall" style={styles.helperText}>
+                        Showing: {intervals[filterPeriod as keyof typeof intervals].start.toLocaleDateString()} - {intervals[filterPeriod as keyof typeof intervals].end.toLocaleDateString()}
+                    </Text>
+                )}
+
+                {filterPeriod === 'monthly' && (
+                    <Text variant="labelSmall" style={styles.helperText}>
+                        Showing bills for {MONTHS[selectedMonth]} 2026
+                    </Text>
+                )}
 
                 {upcomingBills.length > 0 ? upcomingBills.map(bill => (
                     <Card key={bill.id} style={styles.billCard}>
@@ -149,7 +243,7 @@ export default function HomeScreen() {
                 )) : (
                     <View style={styles.emptyContainer}>
                         <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant }}>
-                            No bills due {filterPayPeriod ? 'this pay period' : 'soon'}.
+                            No bills found for the selected period.
                         </Text>
                     </View>
                 )}
@@ -192,12 +286,26 @@ const styles = StyleSheet.create({
         alignItems: 'flex-start',
         marginBottom: 12,
     },
-    periodToggle: {
-        marginTop: 4,
-        paddingVertical: 2,
-        paddingHorizontal: 6,
-        borderRadius: 4,
-        alignSelf: 'flex-start',
+    filterScroll: {
+        marginBottom: 8,
+    },
+    filterChip: {
+        paddingVertical: 4,
+        paddingHorizontal: 12,
+        borderRadius: 16,
+        marginRight: 8,
+        borderWidth: 1,
+        borderColor: 'rgba(0,0,0,0.05)',
+    },
+    filterChipText: {
+        textTransform: 'capitalize',
+        fontWeight: 'bold',
+    },
+    helperText: {
+        marginBottom: 16,
+        opacity: 0.6,
+        fontStyle: 'italic',
+        fontSize: 10,
     },
     billCard: {
         marginBottom: 12,

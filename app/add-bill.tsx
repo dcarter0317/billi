@@ -1,7 +1,7 @@
 /// <reference types="@react-native-community/datetimepicker" />
 import React, { useState } from 'react';
-import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, TouchableOpacity, Modal, FlatList } from 'react-native';
-import { Text, TextInput, Button, useTheme, Card, Divider, IconButton } from 'react-native-paper';
+import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, TouchableOpacity, Modal, FlatList, Switch } from 'react-native';
+import { Text, TextInput, Button, useTheme, Card, Divider, IconButton, Checkbox } from 'react-native-paper';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -54,8 +54,10 @@ export default function AddBillScreen() {
     const pAmount = Array.isArray(params.amount) ? params.amount[0] : params.amount;
     const pDueDate = Array.isArray(params.dueDate) ? params.dueDate[0] : params.dueDate;
     const pCategory = Array.isArray(params.category) ? params.category[0] : params.category;
+    const pIsPaid = params.isPaid === 'true';
+    const pIsCleared = params.isCleared === 'true';
 
-    console.log('AddBillScreen [Mount] Params:', { id, isEdit, pTitle, pAmount, pDueDate, pCategory });
+    console.log('AddBillScreen [Mount] Params:', { id, isEdit, pTitle, pAmount, pDueDate, pCategory, pIsPaid, pIsCleared });
 
     // Helper for date parsing (MM-DD-YYYY) to Date object
     const parseFormattedDate = (dateStr?: string) => {
@@ -72,6 +74,8 @@ export default function AddBillScreen() {
     const [showDatePicker, setShowDatePicker] = useState(false);
     const [category, setCategory] = useState(pCategory || 'Utilities');
     const [showCategoryMenu, setShowCategoryMenu] = useState(false);
+    const [isPaid, setIsPaid] = useState(isEdit ? pIsPaid : false);
+    const [isCleared, setIsCleared] = useState(isEdit ? pIsCleared : false);
 
     // Sync state if params change (robustness for some navigation edge cases)
     React.useEffect(() => {
@@ -80,9 +84,11 @@ export default function AddBillScreen() {
             setAmount(pAmount || '');
             setDate(parseFormattedDate(pDueDate));
             setCategory(pCategory || 'Utilities');
-            console.log('AddBillScreen [Sync] Latest Params:', { pTitle, pAmount, pDueDate });
+            setIsPaid(pIsPaid);
+            setIsCleared(pIsCleared);
+            console.log('AddBillScreen [Sync] Latest Params:', { pTitle, pAmount, pDueDate, pIsPaid, pIsCleared });
         }
-    }, [pTitle, pAmount, pDueDate, pCategory, isEdit]);
+    }, [pTitle, pAmount, pDueDate, pCategory, pIsPaid, pIsCleared, isEdit]);
 
     const onDateChange = (event: any, selectedDate?: Date) => {
         if (Platform.OS === 'android') {
@@ -103,7 +109,9 @@ export default function AddBillScreen() {
                 title,
                 amount,
                 dueDate: finalDueDate,
-                category
+                category,
+                isPaid,
+                isCleared
             });
         } else {
             console.log('AddBillScreen -> addBill');
@@ -112,7 +120,8 @@ export default function AddBillScreen() {
                 amount,
                 dueDate: finalDueDate,
                 category,
-                isPaid: false
+                isPaid,
+                isCleared
             });
         }
         router.back();
@@ -132,12 +141,12 @@ export default function AddBillScreen() {
                     <Card style={styles.formCard}>
                         <Card.Content>
                             <TextInput
-                                label="Bill Name"
+                                label="Payee"
                                 value={title}
                                 onChangeText={setTitle}
                                 mode="outlined"
                                 style={styles.input}
-                                placeholder="e.g. Electric Bill"
+                                placeholder="e.g. Electric Company"
                             />
 
                             <TextInput
@@ -203,6 +212,7 @@ export default function AddBillScreen() {
                                 )
                             )}
 
+                            {/* Category Selection */}
                             <TouchableOpacity
                                 onPress={() => setShowCategoryMenu(true)}
                                 activeOpacity={0.7}
@@ -218,6 +228,29 @@ export default function AddBillScreen() {
                                     />
                                 </View>
                             </TouchableOpacity>
+
+                            <Divider style={{ marginVertical: 16 }} />
+
+                            <View style={styles.switchRow}>
+                                <Text variant="bodyLarge">Is Paid</Text>
+                                <Switch
+                                    value={isPaid}
+                                    onValueChange={setIsPaid}
+                                    trackColor={{ false: '#767577', true: theme.colors.primary }}
+                                    thumbColor={Platform.OS === 'ios' ? undefined : '#f4f3f4'}
+                                />
+                            </View>
+
+                            <View style={styles.checkboxRow}>
+                                <Checkbox.Android
+                                    status={isCleared ? 'checked' : 'unchecked'}
+                                    onPress={() => setIsCleared(!isCleared)}
+                                    color={theme.colors.primary}
+                                />
+                                <TouchableOpacity onPress={() => setIsCleared(!isCleared)}>
+                                    <Text variant="bodyLarge">Payment Cleared</Text>
+                                </TouchableOpacity>
+                            </View>
 
                             {/* Category Picker Modal */}
                             <Modal
@@ -334,5 +367,15 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         paddingVertical: 15,
         paddingHorizontal: 10,
+    },
+    switchRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 16,
+    },
+    checkboxRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
     }
 });
