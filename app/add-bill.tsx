@@ -99,32 +99,47 @@ export default function AddBillScreen() {
         }
     };
 
-    const handleSave = () => {
-        const finalDueDate = formatDate(date);
-        console.log('AddBillScreen [handleSave] isEdit:', isEdit, 'ID:', id);
+    const [saving, setSaving] = useState(false);
 
-        if (isEdit && id) {
-            console.log('AddBillScreen -> updateBill:', id);
-            updateBill(id, {
-                title,
-                amount,
-                dueDate: finalDueDate,
-                category,
-                isPaid,
-                isCleared
-            });
-        } else {
-            console.log('AddBillScreen -> addBill');
-            addBill({
-                title,
-                amount,
-                dueDate: finalDueDate,
-                category,
-                isPaid,
-                isCleared
-            });
+    const handleSave = async () => {
+        if (!title || !amount) {
+            // Simple validation
+            return;
         }
-        router.back();
+
+        setSaving(true);
+        try {
+            const finalDueDate = formatDate(date);
+            console.log('AddBillScreen [handleSave] isEdit:', isEdit, 'ID:', id);
+
+            if (isEdit && id) {
+                console.log('AddBillScreen -> updateBill:', id);
+                await updateBill(id, {
+                    title,
+                    amount,
+                    dueDate: finalDueDate,
+                    category,
+                    isPaid,
+                    isCleared
+                });
+            } else {
+                console.log('AddBillScreen -> addBill');
+                await addBill({
+                    title,
+                    amount,
+                    dueDate: finalDueDate,
+                    category,
+                    isPaid,
+                    isCleared
+                });
+            }
+            router.back();
+        } catch (error) {
+            console.error('Failed to save bill:', error);
+            // Optionally show alert here
+        } finally {
+            setSaving(false);
+        }
     };
 
     return (
@@ -297,6 +312,8 @@ export default function AddBillScreen() {
 
                     <Button
                         mode="contained"
+                        loading={saving}
+                        disabled={saving}
                         onPress={handleSave}
                         style={styles.saveButton}
                         contentStyle={styles.saveButtonContent}

@@ -4,9 +4,6 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { BilliTheme } from "../constants/theme";
 
-// NOTE: Clerk has been temporarily removed due to react-dom dependency issues.
-// Auth will be added back in Phase 2 (Backend Integration).
-
 import { BillProvider } from '../context/BillContext';
 import { UserProvider } from '../context/UserContext';
 
@@ -38,6 +35,13 @@ function RootLayoutContent() {
                         headerStyle: { backgroundColor: theme.colors.background },
                         headerTintColor: theme.colors.primary,
                         headerTitleStyle: { color: theme.colors.onSurface }
+                    }}
+                />
+                <Stack.Screen
+                    name="profile"
+                    options={{
+                        presentation: 'modal',
+                        headerShown: false,
                     }}
                 />
             </Stack>

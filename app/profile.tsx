@@ -1,21 +1,35 @@
 import React, { useState, useEffect } from 'react';
 import { View, StyleSheet, ScrollView, TouchableOpacity, Alert, Platform } from 'react-native';
-import { Text, TextInput, Button, Avatar, useTheme } from 'react-native-paper';
+import { Text, TextInput, Button, Avatar, useTheme, Switch, List, Menu, Divider } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { useUser } from '../context/UserContext';
+import { usePreferences } from '../context/UserPreferencesContext';
 import { Camera } from 'lucide-react-native';
 
 export default function ProfileScreen() {
     const theme = useTheme();
     const router = useRouter();
     const { user, updateUser } = useUser();
+    const {
+        preferences,
+        toggleDarkMode,
+        toggleNotifications,
+        toggleBiometrics,
+        setCurrency,
+        setPayPeriodStart,
+        setPayPeriodFrequency
+    } = usePreferences();
 
     const [name, setName] = useState(user.name);
     const [email, setEmail] = useState(user.email);
     const [avatar, setAvatar] = useState(user.avatar);
     const [isSaving, setIsSaving] = useState(false);
+    const [currencyMenuVisible, setCurrencyMenuVisible] = useState(false);
+    const [frequencyMenuVisible, setFrequencyMenuVisible] = useState(false);
+    const [showDatePicker, setShowDatePicker] = useState(false);
 
     useEffect(() => {
         setName(user.name);
@@ -54,6 +68,15 @@ export default function ProfileScreen() {
             setAvatar(result.assets[0].uri);
         }
     };
+
+    const handleToggleBiometrics = async () => {
+        const success = await toggleBiometrics();
+        if (!success && !preferences.biometricsEnabled) {
+            Alert.alert("Error", "Failed to enable biometrics. Please try again.");
+        }
+    };
+
+    const currencies = ['USD', 'EUR', 'GBP', 'CAD', 'AUD', 'JPY'];
 
     return (
         <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
@@ -108,6 +131,117 @@ export default function ProfileScreen() {
                         autoCapitalize="none"
                     />
                 </View>
+
+                <View style={styles.divider} />
+
+                <Text variant="titleMedium" style={[styles.sectionTitle, { color: theme.colors.onSurfaceVariant }]}>Pay Period Settings</Text>
+
+                <View style={[styles.settingItem, { borderBottomColor: theme.colors.outlineVariant }]}>
+                    <Text variant="bodyLarge">Start Date</Text>
+                    {Platform.OS === 'android' ? (
+                        <Button
+                            mode="outlined"
+                            onPress={() => setShowDatePicker(true)}
+                            textColor={theme.colors.primary}
+                        >
+                            {new Date(preferences.payPeriodStart).toLocaleDateString()}
+                        </Button>
+                    ) : (
+                        <DateTimePicker
+                            value={new Date(preferences.payPeriodStart)}
+                            mode="date"
+                            display="default"
+                            onChange={(event, selectedDate) => {
+                                if (selectedDate) setPayPeriodStart(selectedDate);
+                            }}
+                            themeVariant={preferences.isDarkMode ? 'dark' : 'light'}
+                        />
+                    )}
+                </View>
+
+                {Platform.OS === 'android' && showDatePicker && (
+                    <DateTimePicker
+                        value={new Date(preferences.payPeriodStart)}
+                        mode="date"
+                        display="default"
+                        onChange={(event, selectedDate) => {
+                            setShowDatePicker(false);
+                            if (selectedDate) setPayPeriodStart(selectedDate);
+                        }}
+                    />
+                )}
+
+                <Menu
+                    visible={frequencyMenuVisible}
+                    onDismiss={() => setFrequencyMenuVisible(false)}
+                    anchor={
+                        <List.Item
+                            title="Frequency"
+                            titleStyle={{ fontSize: 16 }}
+                            description={preferences.payPeriodFrequency}
+                            descriptionStyle={{ textTransform: 'capitalize', color: theme.colors.primary }}
+                            onPress={() => setFrequencyMenuVisible(true)}
+                            right={props => <List.Icon {...props} icon="chevron-right" />}
+                            style={[styles.settingItem, { paddingVertical: 8, paddingHorizontal: 0 }]}
+                        />
+                    }
+                >
+                    <Menu.Item onPress={() => { setPayPeriodFrequency('weekly'); setFrequencyMenuVisible(false); }} title="Weekly" />
+                    <Menu.Item onPress={() => { setPayPeriodFrequency('bi-weekly'); setFrequencyMenuVisible(false); }} title="Bi-Weekly" />
+                    <Menu.Item onPress={() => { setPayPeriodFrequency('monthly'); setFrequencyMenuVisible(false); }} title="Monthly" />
+                </Menu>
+
+                <View style={styles.divider} />
+
+                <Text variant="titleMedium" style={[styles.sectionTitle, { color: theme.colors.onSurfaceVariant }]}>App Settings</Text>
+
+                <View style={[styles.settingItem, { borderBottomColor: theme.colors.outlineVariant }]}>
+                    <Text variant="bodyLarge">Dark Mode</Text>
+                    <Switch value={preferences.isDarkMode} onValueChange={toggleDarkMode} color={theme.colors.primary} />
+                </View>
+
+                <View style={[styles.settingItem, { borderBottomColor: theme.colors.outlineVariant }]}>
+                    <Text variant="bodyLarge">Notifications</Text>
+                    <Switch value={preferences.notificationsEnabled} onValueChange={toggleNotifications} color={theme.colors.primary} />
+                </View>
+
+                <View style={[styles.settingItem, { borderBottomColor: theme.colors.outlineVariant }]}>
+                    <Text variant="bodyLarge">Biometric Unlock</Text>
+                    <Switch value={preferences.biometricsEnabled} onValueChange={handleToggleBiometrics} color={theme.colors.primary} />
+                </View>
+
+                <View style={styles.divider} />
+
+                <Text variant="titleMedium" style={[styles.sectionTitle, { color: theme.colors.onSurfaceVariant }]}>App Preferences</Text>
+
+                <Menu
+                    visible={currencyMenuVisible}
+                    onDismiss={() => setCurrencyMenuVisible(false)}
+                    anchor={
+                        <List.Item
+                            title="Currency"
+                            titleStyle={{ fontSize: 16 }}
+                            description={preferences.currency}
+                            descriptionStyle={{ color: theme.colors.primary }}
+                            onPress={() => setCurrencyMenuVisible(true)}
+                            right={props => <List.Icon {...props} icon="chevron-right" />}
+                            style={[styles.settingItem, { paddingVertical: 8, paddingHorizontal: 0 }]}
+                        />
+                    }
+                >
+                    {currencies.map((curr) => (
+                        <Menu.Item
+                            key={curr}
+                            onPress={() => {
+                                setCurrency(curr);
+                                setCurrencyMenuVisible(false);
+                            }}
+                            title={curr}
+                            leadingIcon={preferences.currency === curr ? "check" : undefined}
+                        />
+                    ))}
+                </Menu>
+
             </ScrollView>
         </SafeAreaView>
     );
@@ -150,5 +284,22 @@ const styles = StyleSheet.create({
     },
     input: {
         backgroundColor: 'transparent',
+    },
+    divider: {
+        height: 1,
+        backgroundColor: 'rgba(0,0,0,0.1)',
+        marginVertical: 24,
+    },
+    sectionTitle: {
+        marginBottom: 16,
+        fontWeight: '600',
+        opacity: 0.7,
+    },
+    settingItem: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        paddingVertical: 16,
+        borderBottomWidth: 0.5,
     }
 });

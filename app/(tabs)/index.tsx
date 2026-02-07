@@ -2,6 +2,8 @@ import React, { useState, useMemo } from 'react';
 import { View, ScrollView, StyleSheet, TouchableOpacity } from 'react-native';
 import { Text, Card, useTheme, Button, Avatar, Menu, Divider } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
+import { useUser } from '../../context/UserContext';
 import { useBills, Bill } from '../../context/BillContext';
 import { usePreferences } from '../../context/UserPreferencesContext';
 
@@ -15,18 +17,40 @@ const parseDate = (dateStr: string) => {
     const [month, day, year] = dateStr.split('-').map(Number);
     return new Date(year, month - 1, day);
 };
-const PAY_CYCLE_START = new Date(2026, 0, 26); // Jan 26, 2026
-const getPayPeriodInterval = (offset = 0) => {
-    const now = new Date(2026, 1, 5); // Feb 5, 2026
-    const diff = now.getTime() - PAY_CYCLE_START.getTime();
-    const daysSinceStart = Math.floor(diff / (1000 * 60 * 60 * 24));
-    const periodsPassed = Math.floor(daysSinceStart / 14) + offset;
 
-    const start = new Date(PAY_CYCLE_START);
-    start.setDate(PAY_CYCLE_START.getDate() + (periodsPassed * 14));
+// Helper to get pay period interval based on preferences
+const getPayPeriodInterval = (
+    startAnchor: number,
+    frequency: 'weekly' | 'bi-weekly' | 'monthly',
+    offset = 0
+) => {
+    const anchorDate = new Date(startAnchor);
+    const now = new Date();
+
+    // Calculate days since anchor
+    const diffTime = now.getTime() - anchorDate.getTime();
+    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+
+    let periodLengthDays = 14; // Default bi-weekly
+    if (frequency === 'weekly') periodLengthDays = 7;
+    if (frequency === 'monthly') {
+        // Monthly logic is trickier, simplifying for now to just show current month if offset is 0
+        // A robust monthly implementation would need to handle "same day next month" logic
+        const targetDate = new Date(now.getFullYear(), now.getMonth() + offset, 1);
+        const start = new Date(targetDate.getFullYear(), targetDate.getMonth(), anchorDate.getDate());
+        const end = new Date(start);
+        end.setMonth(start.getMonth() + 1);
+        end.setDate(end.getDate() - 1);
+        return { start, end };
+    }
+
+    const periodsPassed = Math.floor(diffDays / periodLengthDays) + offset;
+
+    const start = new Date(anchorDate);
+    start.setDate(anchorDate.getDate() + (periodsPassed * periodLengthDays));
 
     const end = new Date(start);
-    end.setDate(start.getDate() + 13);
+    end.setDate(start.getDate() + periodLengthDays - 1);
 
     return { start, end };
 };
@@ -35,7 +59,7 @@ const getBillStatusColor = (bill: Bill, theme: any) => {
     if (bill.isPaid) {
         return theme.dark ? theme.colors.success : '#1B5E20'; // Darker Green in light mode
     }
-    const today = new Date(2026, 1, 5);
+    const today = new Date();
     const dueDate = parseDate(bill.dueDate);
     const diffTime = dueDate.getTime() - today.getTime();
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
@@ -46,12 +70,10 @@ const getBillStatusColor = (bill: Bill, theme: any) => {
     return theme.dark ? (theme.colors as any).warning : '#E65100'; // Darker Amber/Orange in light mode
 };
 
-// interface Bill moved to Context
-
-// INITIAL_BILLS moved to Context
-
 export default function HomeScreen() {
     const theme = useTheme();
+    const router = useRouter();
+    const { user } = useUser();
     const { bills } = useBills();
     const { preferences } = usePreferences();
     const [filterPeriod, setFilterPeriod] = useState<'last' | 'this' | 'next' | 'all' | 'monthly'>('this');
@@ -61,10 +83,10 @@ export default function HomeScreen() {
     const currencySymbol = preferences.currency === 'EUR' ? '€' : '$';
 
     const intervals = useMemo(() => ({
-        last: getPayPeriodInterval(-1),
-        this: getPayPeriodInterval(0),
-        next: getPayPeriodInterval(1),
-    }), []);
+        last: getPayPeriodInterval(preferences.payPeriodStart, preferences.payPeriodFrequency, -1),
+        this: getPayPeriodInterval(preferences.payPeriodStart, preferences.payPeriodFrequency, 0),
+        next: getPayPeriodInterval(preferences.payPeriodStart, preferences.payPeriodFrequency, 1),
+    }), [preferences.payPeriodStart, preferences.payPeriodFrequency]);
 
     const upcomingBills = useMemo(() => {
         return bills
@@ -75,7 +97,7 @@ export default function HomeScreen() {
                 const billDate = parseDate(bill.dueDate);
                 if (filterPeriod === 'monthly') {
                     if (selectedMonth === -1) return true; // Show all for year if no month selected
-                    return billDate.getMonth() === selectedMonth && billDate.getFullYear() === 2026;
+                    return billDate.getMonth() === selectedMonth && billDate.getFullYear() === new Date().getFullYear();
                 }
 
                 const interval = intervals[filterPeriod as keyof typeof intervals];
@@ -84,29 +106,58 @@ export default function HomeScreen() {
             .sort((a, b) => parseDate(a.dueDate).getTime() - parseDate(b.dueDate).getTime());
     }, [filterPeriod, selectedMonth, intervals, bills]);
 
+    const { totalDue, paidThisMonth } = useMemo(() => {
+        const now = new Date();
+        const currentMonth = now.getMonth();
+        const currentYear = now.getFullYear();
+
+        return bills.reduce((acc, bill) => {
+            const amount = parseFloat(bill.amount) || 0;
+            const billDate = parseDate(bill.dueDate);
+
+            if (!bill.isPaid) {
+                acc.totalDue += amount;
+            } else {
+                // Check if paid in current month (based on due date)
+                if (billDate.getMonth() === currentMonth && billDate.getFullYear() === currentYear) {
+                    acc.paidThisMonth += amount;
+                }
+            }
+            return acc;
+        }, { totalDue: 0, paidThisMonth: 0 });
+    }, [bills]);
+
     return (
         <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
             <ScrollView contentContainerStyle={styles.content}>
-
                 {/* Header / Greeting */}
                 <View style={styles.header}>
                     <View>
-                        <Text variant="titleMedium" style={{ color: theme.colors.onSurfaceVariant }}>Good Morning,</Text>
-                        <Text variant="headlineMedium" style={{ fontWeight: 'bold' }}>Alex</Text>
+                        <Text variant="titleMedium" style={{ color: theme.colors.onSurfaceVariant }}>
+                            {(() => {
+                                const hour = new Date().getHours();
+                                if (hour < 12) return 'Good Morning,';
+                                if (hour < 18) return 'Good Afternoon,';
+                                return 'Good Evening,';
+                            })()}
+                        </Text>
+                        <Text variant="headlineMedium" style={{ fontWeight: 'bold' }}>{user?.name?.split(' ')[0] || 'User'}</Text>
                     </View>
-                    <Avatar.Image size={48} source={{ uri: 'https://i.pravatar.cc/150?img=12' }} />
+                    <TouchableOpacity onPress={() => router.push('/profile')}>
+                        <Avatar.Image size={48} source={{ uri: user?.avatar || 'https://i.pravatar.cc/150?img=12' }} />
+                    </TouchableOpacity>
                 </View>
 
                 {/* Total Balance Card */}
                 <Card style={[styles.balanceCard, { backgroundColor: theme.colors.primary }]}>
                     <Card.Content>
-                        <Text variant="labelLarge" style={{ color: theme.colors.onPrimary, opacity: 0.9 }}>Total Balance</Text>
+                        <Text variant="labelLarge" style={{ color: theme.colors.onPrimary, opacity: 0.9 }}>Total Outstanding</Text>
                         <Text variant="displayMedium" style={{ fontWeight: 'bold', marginVertical: 8, color: theme.colors.onPrimary }}>
-                            {currencySymbol}2,450.00
+                            {currencySymbol}{totalDue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </Text>
                         <View style={styles.badgeRow}>
                             <View style={[styles.badge, { backgroundColor: 'rgba(255,255,255,0.15)' }]}>
-                                <Text variant="labelMedium" style={{ color: theme.colors.onPrimary }}>+ {currencySymbol}1,200 this month</Text>
+                                <Text variant="labelMedium" style={{ color: theme.colors.onPrimary }}>+ {currencySymbol}{paidThisMonth.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} paid this month</Text>
                             </View>
                         </View>
                     </Card.Content>
@@ -194,62 +245,68 @@ export default function HomeScreen() {
                     </View>
                 </View>
 
-                {filterPeriod !== 'all' && filterPeriod !== 'monthly' && (
-                    <Text variant="labelSmall" style={styles.helperText}>
-                        Showing: {intervals[filterPeriod as keyof typeof intervals].start.toLocaleDateString()} - {intervals[filterPeriod as keyof typeof intervals].end.toLocaleDateString()}
-                    </Text>
-                )}
-
-                {filterPeriod === 'monthly' && (
-                    <Text variant="labelSmall" style={styles.helperText}>
-                        Showing bills for {MONTHS[selectedMonth]} 2026
-                    </Text>
-                )}
-
-                {upcomingBills.length > 0 ? upcomingBills.map(bill => (
-                    <Card key={bill.id} style={styles.billCard}>
-                        <Card.Title
-                            title={bill.title}
-                            subtitle={
-                                <View>
-                                    <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>Due {bill.dueDate}</Text>
-                                    <View style={styles.categoryBadge}>
-                                        <Text
-                                            variant="labelSmall"
-                                            style={[
-                                                styles.categoryText,
-                                                { color: getBillStatusColor(bill, theme) }
-                                            ]}
-                                        >
-                                            {bill.category}
-                                        </Text>
-                                    </View>
-                                </View>
-                            }
-                            left={(props) => (
-                                <Avatar.Icon
-                                    {...props}
-                                    icon={bill.category === 'Entertainment' ? 'movie' : bill.category === 'Housing' ? 'home' : 'flash'}
-                                    style={{ backgroundColor: bill.category === 'Entertainment' ? '#E50914' : bill.category === 'Housing' ? theme.colors.primary : (theme.colors as any).warning }}
-                                />
-                            )}
-                            right={(props) => (
-                                <Text variant="titleMedium" style={{ marginRight: 16 }}>
-                                    {currencySymbol}{bill.amount}
-                                </Text>
-                            )}
-                        />
-                    </Card>
-                )) : (
-                    <View style={styles.emptyContainer}>
-                        <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant }}>
-                            No bills found for the selected period.
+                {
+                    filterPeriod !== 'all' && filterPeriod !== 'monthly' && (
+                        <Text variant="labelSmall" style={styles.helperText}>
+                            Showing: {intervals[filterPeriod as keyof typeof intervals].start.toLocaleDateString()} - {intervals[filterPeriod as keyof typeof intervals].end.toLocaleDateString()}
                         </Text>
-                    </View>
-                )}
+                    )
+                }
 
-            </ScrollView>
-        </SafeAreaView>
+                {
+                    filterPeriod === 'monthly' && (
+                        <Text variant="labelSmall" style={styles.helperText}>
+                            Showing bills for {MONTHS[selectedMonth]} {new Date().getFullYear()}
+                        </Text>
+                    )
+                }
+
+                {
+                    upcomingBills.length > 0 ? upcomingBills.map(bill => (
+                        <Card key={bill.id} style={styles.billCard}>
+                            <Card.Title
+                                title={bill.title}
+                                subtitle={
+                                    <View>
+                                        <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>Due {bill.dueDate}</Text>
+                                        <View style={styles.categoryBadge}>
+                                            <Text
+                                                variant="labelSmall"
+                                                style={[
+                                                    styles.categoryText,
+                                                    { color: getBillStatusColor(bill, theme) }
+                                                ]}
+                                            >
+                                                {bill.category}
+                                            </Text>
+                                        </View>
+                                    </View>
+                                }
+                                left={(props) => (
+                                    <Avatar.Icon
+                                        {...props}
+                                        icon={bill.category === 'Entertainment' ? 'movie' : bill.category === 'Housing' ? 'home' : 'flash'}
+                                        style={{ backgroundColor: bill.category === 'Entertainment' ? '#E50914' : bill.category === 'Housing' ? theme.colors.primary : (theme.colors as any).warning }}
+                                    />
+                                )}
+                                right={(props) => (
+                                    <Text variant="titleMedium" style={{ marginRight: 16 }}>
+                                        {currencySymbol}{bill.amount}
+                                    </Text>
+                                )}
+                            />
+                        </Card>
+                    )) : (
+                        <View style={styles.emptyContainer}>
+                            <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant }}>
+                                No bills found for the selected period.
+                            </Text>
+                        </View>
+                    )
+                }
+
+            </ScrollView >
+        </SafeAreaView >
     );
 }
 

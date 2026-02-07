@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
-import { Text, List, Switch, useTheme, Divider, Button, Avatar } from 'react-native-paper';
+import { Text, List, Switch, useTheme, Divider, Button, Avatar, Menu } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { usePreferences } from '../../context/UserPreferencesContext';
 import { useUser } from '../../context/UserContext';
@@ -29,6 +29,7 @@ export default function SettingsScreen() {
         setCurrency
     } = usePreferences();
     const { user } = useUser();
+    const [currencyMenuVisible, setCurrencyMenuVisible] = React.useState(false);
 
     const onToggleNotifications = (value: boolean) => {
         toggleNotifications();
@@ -96,15 +97,31 @@ export default function SettingsScreen() {
                         left={props => <View style={styles.iconContainer}><Moon size={20} color={theme.colors.primary} /></View>}
                         right={() => <Switch value={preferences.isDarkMode} onValueChange={toggleDarkMode} />}
                     />
-                    <List.Item
-                        title="Currency"
-                        description={preferences.currency}
-                        left={props => <View style={styles.iconContainer}><DollarSign size={20} color={theme.colors.primary} /></View>}
-                        onPress={() => {
-                            setCurrency(preferences.currency === 'USD' ? 'EUR' : 'USD');
-                        }}
-                        right={() => <ChevronRight size={20} color={theme.colors.onSurfaceVariant} style={{ marginTop: 12 }} />}
-                    />
+                    <Menu
+                        visible={currencyMenuVisible}
+                        onDismiss={() => setCurrencyMenuVisible(false)}
+                        anchor={
+                            <List.Item
+                                title="Currency"
+                                description={preferences.currency}
+                                left={props => <View style={styles.iconContainer}><DollarSign size={20} color={theme.colors.primary} /></View>}
+                                onPress={() => setCurrencyMenuVisible(true)}
+                                right={() => <ChevronRight size={20} color={theme.colors.onSurfaceVariant} style={{ marginTop: 12 }} />}
+                            />
+                        }
+                    >
+                        {['USD', 'EUR', 'GBP', 'CAD', 'AUD', 'JPY'].map((curr) => (
+                            <Menu.Item
+                                key={curr}
+                                onPress={() => {
+                                    setCurrency(curr);
+                                    setCurrencyMenuVisible(false);
+                                }}
+                                title={curr}
+                                leadingIcon={preferences.currency === curr ? "check" : undefined}
+                            />
+                        ))}
+                    </Menu>
                 </List.Section>
 
                 <Divider style={styles.divider} />

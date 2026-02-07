@@ -8,6 +8,8 @@ interface UserPreferences {
     notificationsEnabled: boolean;
     biometricsEnabled: boolean;
     currency: string;
+    payPeriodStart: number; // Stored as timestamp
+    payPeriodFrequency: 'weekly' | 'bi-weekly' | 'monthly';
 }
 
 interface UserPreferencesContextType {
@@ -17,6 +19,8 @@ interface UserPreferencesContextType {
     toggleNotifications: () => void;
     toggleBiometrics: () => Promise<boolean>;
     setCurrency: (currency: string) => void;
+    setPayPeriodStart: (date: Date) => void;
+    setPayPeriodFrequency: (frequency: 'weekly' | 'bi-weekly' | 'monthly') => void;
     authenticate: () => Promise<boolean>;
 }
 
@@ -33,6 +37,8 @@ export function UserPreferencesProvider({ children }: { children: ReactNode }) {
         notificationsEnabled: true,
         biometricsEnabled: false,
         currency: 'USD',
+        payPeriodStart: new Date(2026, 0, 26).getTime(), // Default to Jan 26, 2026
+        payPeriodFrequency: 'bi-weekly',
     });
 
     const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -44,7 +50,8 @@ export function UserPreferencesProvider({ children }: { children: ReactNode }) {
                 const saved = await getItemAsync(PREFERENCES_KEY);
                 if (saved) {
                     const parsed = JSON.parse(saved);
-                    setPreferences(parsed);
+                    // Merge with defaults to handle new fields for existing users
+                    setPreferences(prev => ({ ...prev, ...parsed }));
                     // If biometrics are NOT enabled, we are "authenticated" by default
                     if (!parsed.biometricsEnabled) {
                         setIsAuthenticated(true);
@@ -130,6 +137,14 @@ export function UserPreferencesProvider({ children }: { children: ReactNode }) {
         savePreferences({ ...preferences, currency });
     };
 
+    const setPayPeriodStart = (date: Date) => {
+        savePreferences({ ...preferences, payPeriodStart: date.getTime() });
+    };
+
+    const setPayPeriodFrequency = (frequency: 'weekly' | 'bi-weekly' | 'monthly') => {
+        savePreferences({ ...preferences, payPeriodFrequency: frequency });
+    };
+
     return (
         <UserPreferencesContext.Provider value={{
             preferences,
@@ -138,6 +153,8 @@ export function UserPreferencesProvider({ children }: { children: ReactNode }) {
             toggleNotifications,
             toggleBiometrics,
             setCurrency,
+            setPayPeriodStart,
+            setPayPeriodFrequency,
             authenticate
         }}>
             {children}
