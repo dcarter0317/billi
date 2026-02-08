@@ -11,51 +11,11 @@ import DraggableFlatList, {
 
 import { useBills, Bill } from '../../context/BillContext';
 import { usePreferences } from '../../context/UserPreferencesContext';
+import { MONTHS, parseDate, getPayPeriodInterval, getBillStatusColor } from '../../utils/date';
 
-// Helper for date formatting/parsing (MM-DD-YYYY)
-const parseDate = (dateStr: string) => {
-    const [month, day, year] = dateStr.split('-').map(Number);
-    return new Date(year, month - 1, day);
-};
 
-const MONTHS = [
-    'January', 'February', 'March', 'April', 'May', 'June',
-    'July', 'August', 'September', 'October', 'November', 'December'
-];
 
-// 14-day Pay Period Logic (Reference starting Monday)
-const PAY_CYCLE_START = new Date(2026, 0, 26); // Jan 26, 2026
-const getPayPeriodInterval = (offset = 0) => {
-    const now = new Date(2026, 1, 5); // Feb 5, 2026
-    const diff = now.getTime() - PAY_CYCLE_START.getTime();
-    const daysSinceStart = Math.floor(diff / (1000 * 60 * 60 * 24));
-    const periodsPassed = Math.floor(daysSinceStart / 14) + offset;
 
-    const start = new Date(PAY_CYCLE_START);
-    start.setDate(PAY_CYCLE_START.getDate() + (periodsPassed * 14));
-
-    const end = new Date(start);
-    end.setDate(start.getDate() + 13);
-
-    return { start, end };
-};
-
-// Helper for status coloring
-const getBillStatusColor = (bill: Bill, theme: any) => {
-    if (bill.isPaid) {
-        return theme.dark ? theme.colors.success : '#1B5E20';
-    }
-
-    const today = new Date(2026, 1, 5);
-    const dueDate = parseDate(bill.dueDate);
-    const diffTime = dueDate.getTime() - today.getTime();
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-    if (diffDays <= 2) {
-        return theme.dark ? theme.colors.error : '#B71C1C';
-    }
-    return theme.dark ? (theme.colors as any).warning : '#E65100';
-};
 
 // interface Bill moved to context/BillContext.tsx
 
@@ -87,10 +47,10 @@ export default function BillsScreen() {
     };
 
     const intervals = useMemo(() => ({
-        last: getPayPeriodInterval(-1),
-        this: getPayPeriodInterval(0),
-        next: getPayPeriodInterval(1),
-    }), []);
+        last: getPayPeriodInterval(preferences.payPeriodStart, preferences.payPeriodFrequency, -1),
+        this: getPayPeriodInterval(preferences.payPeriodStart, preferences.payPeriodFrequency, 0),
+        next: getPayPeriodInterval(preferences.payPeriodStart, preferences.payPeriodFrequency, 1),
+    }), [preferences.payPeriodStart, preferences.payPeriodFrequency]);
 
     const handleReset = () => {
         Alert.alert(
@@ -227,7 +187,9 @@ export default function BillsScreen() {
                                         onPress={() => toggleClearStatus(item.id)}
                                         color={(theme.colors as any).success || theme.colors.primary}
                                     />
-                                    <Text variant="labelSmall" style={styles.clearedText}>Payment Cleared</Text>
+                                    <Text variant="labelSmall" style={styles.clearedText}>
+                                        {item.isCleared && item.clearedDate ? `Cleared on ${item.clearedDate}` : 'Payment Cleared'}
+                                    </Text>
                                 </View>
                             </View>
                         </View>

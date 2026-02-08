@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { View, StyleSheet, ScrollView, TouchableOpacity, Alert, Platform } from 'react-native';
-import { Text, TextInput, Button, Avatar, useTheme, Switch, List, Menu, Divider } from 'react-native-paper';
+import { Text, TextInput, Button, Avatar, useTheme, Switch, List, Menu, Divider, PaperProvider } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
@@ -79,171 +79,173 @@ export default function ProfileScreen() {
     const currencies = ['USD', 'EUR', 'GBP', 'CAD', 'AUD', 'JPY'];
 
     return (
-        <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
-            <View style={styles.header}>
-                <Button mode="text" onPress={() => router.back()} textColor={theme.colors.primary}>
-                    Cancel
-                </Button>
-                <Text variant="titleMedium" style={{ fontWeight: 'bold' }}>Edit Profile</Text>
-                <Button
-                    mode="text"
-                    onPress={handleSave}
-                    textColor={theme.colors.primary}
-                    loading={isSaving}
-                    disabled={isSaving}
-                >
-                    Save
-                </Button>
-            </View>
-
-            <ScrollView contentContainerStyle={styles.content}>
-                <View style={styles.avatarContainer}>
-                    <TouchableOpacity onPress={pickImage}>
-                        {avatar ? (
-                            <Avatar.Image size={100} source={{ uri: avatar }} />
-                        ) : (
-                            <Avatar.Text size={100} label={name.charAt(0).toUpperCase()} />
-                        )}
-                        <View style={[styles.cameraIcon, { backgroundColor: theme.colors.primary }]}>
-                            <Camera size={20} color={theme.colors.onPrimary} />
-                        </View>
-                    </TouchableOpacity>
-                    <Button mode="text" onPress={pickImage} style={{ marginTop: 8 }}>
-                        Change Photo
+        <PaperProvider theme={theme}>
+            <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
+                <View style={styles.header}>
+                    <Button mode="text" onPress={() => router.back()} textColor={theme.colors.primary}>
+                        Cancel
+                    </Button>
+                    <Text variant="titleMedium" style={{ fontWeight: 'bold' }}>Edit Profile</Text>
+                    <Button
+                        mode="text"
+                        onPress={handleSave}
+                        textColor={theme.colors.primary}
+                        loading={isSaving}
+                        disabled={isSaving}
+                    >
+                        Save
                     </Button>
                 </View>
 
-                <View style={styles.form}>
-                    <TextInput
-                        label="Name"
-                        value={name}
-                        onChangeText={setName}
-                        mode="outlined"
-                        style={styles.input}
-                    />
-                    <TextInput
-                        label="Email"
-                        value={email}
-                        onChangeText={setEmail}
-                        mode="outlined"
-                        style={styles.input}
-                        keyboardType="email-address"
-                        autoCapitalize="none"
-                    />
-                </View>
-
-                <View style={styles.divider} />
-
-                <Text variant="titleMedium" style={[styles.sectionTitle, { color: theme.colors.onSurfaceVariant }]}>Pay Period Settings</Text>
-
-                <View style={[styles.settingItem, { borderBottomColor: theme.colors.outlineVariant }]}>
-                    <Text variant="bodyLarge">Start Date</Text>
-                    {Platform.OS === 'android' ? (
-                        <Button
-                            mode="outlined"
-                            onPress={() => setShowDatePicker(true)}
-                            textColor={theme.colors.primary}
-                        >
-                            {new Date(preferences.payPeriodStart).toLocaleDateString()}
+                <ScrollView contentContainerStyle={styles.content}>
+                    <View style={styles.avatarContainer}>
+                        <TouchableOpacity onPress={pickImage}>
+                            {avatar ? (
+                                <Avatar.Image size={100} source={{ uri: avatar }} />
+                            ) : (
+                                <Avatar.Text size={100} label={name.charAt(0).toUpperCase()} />
+                            )}
+                            <View style={[styles.cameraIcon, { backgroundColor: theme.colors.primary }]}>
+                                <Camera size={20} color={theme.colors.onPrimary} />
+                            </View>
+                        </TouchableOpacity>
+                        <Button mode="text" onPress={pickImage} style={{ marginTop: 8 }}>
+                            Change Photo
                         </Button>
-                    ) : (
+                    </View>
+
+                    <View style={styles.form}>
+                        <TextInput
+                            label="Name"
+                            value={name}
+                            onChangeText={setName}
+                            mode="outlined"
+                            style={styles.input}
+                        />
+                        <TextInput
+                            label="Email"
+                            value={email}
+                            onChangeText={setEmail}
+                            mode="outlined"
+                            style={styles.input}
+                            keyboardType="email-address"
+                            autoCapitalize="none"
+                        />
+                    </View>
+
+                    <View style={styles.divider} />
+
+                    <Text variant="titleMedium" style={[styles.sectionTitle, { color: theme.colors.onSurfaceVariant }]}>Pay Period Settings</Text>
+
+                    <View style={[styles.settingItem, { borderBottomColor: theme.colors.outlineVariant }]}>
+                        <Text variant="bodyLarge">Start Date</Text>
+                        {Platform.OS === 'android' ? (
+                            <Button
+                                mode="outlined"
+                                onPress={() => setShowDatePicker(true)}
+                                textColor={theme.colors.primary}
+                            >
+                                {new Date(preferences.payPeriodStart).toLocaleDateString()}
+                            </Button>
+                        ) : (
+                            <DateTimePicker
+                                value={new Date(preferences.payPeriodStart)}
+                                mode="date"
+                                display="default"
+                                onChange={(event, selectedDate) => {
+                                    if (selectedDate) setPayPeriodStart(selectedDate);
+                                }}
+                                themeVariant={preferences.isDarkMode ? 'dark' : 'light'}
+                            />
+                        )}
+                    </View>
+
+                    {Platform.OS === 'android' && showDatePicker && (
                         <DateTimePicker
                             value={new Date(preferences.payPeriodStart)}
                             mode="date"
                             display="default"
                             onChange={(event, selectedDate) => {
+                                setShowDatePicker(false);
                                 if (selectedDate) setPayPeriodStart(selectedDate);
                             }}
-                            themeVariant={preferences.isDarkMode ? 'dark' : 'light'}
                         />
                     )}
-                </View>
 
-                {Platform.OS === 'android' && showDatePicker && (
-                    <DateTimePicker
-                        value={new Date(preferences.payPeriodStart)}
-                        mode="date"
-                        display="default"
-                        onChange={(event, selectedDate) => {
-                            setShowDatePicker(false);
-                            if (selectedDate) setPayPeriodStart(selectedDate);
-                        }}
-                    />
-                )}
+                    <Menu
+                        visible={frequencyMenuVisible}
+                        onDismiss={() => setFrequencyMenuVisible(false)}
+                        anchor={
+                            <List.Item
+                                title="Frequency"
+                                titleStyle={{ fontSize: 16 }}
+                                description={preferences.payPeriodFrequency}
+                                descriptionStyle={{ textTransform: 'capitalize', color: theme.colors.primary }}
+                                onPress={() => setFrequencyMenuVisible(true)}
+                                right={props => <List.Icon {...props} icon="chevron-right" />}
+                                style={[styles.settingItem, { paddingVertical: 8, paddingHorizontal: 0 }]}
+                            />
+                        }
+                    >
+                        <Menu.Item onPress={() => { setPayPeriodFrequency('weekly'); setFrequencyMenuVisible(false); }} title="Weekly" />
+                        <Menu.Item onPress={() => { setPayPeriodFrequency('bi-weekly'); setFrequencyMenuVisible(false); }} title="Bi-Weekly" />
+                        <Menu.Item onPress={() => { setPayPeriodFrequency('monthly'); setFrequencyMenuVisible(false); }} title="Monthly" />
+                    </Menu>
 
-                <Menu
-                    visible={frequencyMenuVisible}
-                    onDismiss={() => setFrequencyMenuVisible(false)}
-                    anchor={
-                        <List.Item
-                            title="Frequency"
-                            titleStyle={{ fontSize: 16 }}
-                            description={preferences.payPeriodFrequency}
-                            descriptionStyle={{ textTransform: 'capitalize', color: theme.colors.primary }}
-                            onPress={() => setFrequencyMenuVisible(true)}
-                            right={props => <List.Icon {...props} icon="chevron-right" />}
-                            style={[styles.settingItem, { paddingVertical: 8, paddingHorizontal: 0 }]}
-                        />
-                    }
-                >
-                    <Menu.Item onPress={() => { setPayPeriodFrequency('weekly'); setFrequencyMenuVisible(false); }} title="Weekly" />
-                    <Menu.Item onPress={() => { setPayPeriodFrequency('bi-weekly'); setFrequencyMenuVisible(false); }} title="Bi-Weekly" />
-                    <Menu.Item onPress={() => { setPayPeriodFrequency('monthly'); setFrequencyMenuVisible(false); }} title="Monthly" />
-                </Menu>
+                    <View style={styles.divider} />
 
-                <View style={styles.divider} />
+                    <Text variant="titleMedium" style={[styles.sectionTitle, { color: theme.colors.onSurfaceVariant }]}>App Settings</Text>
 
-                <Text variant="titleMedium" style={[styles.sectionTitle, { color: theme.colors.onSurfaceVariant }]}>App Settings</Text>
+                    <View style={[styles.settingItem, { borderBottomColor: theme.colors.outlineVariant }]}>
+                        <Text variant="bodyLarge">Dark Mode</Text>
+                        <Switch value={preferences.isDarkMode} onValueChange={toggleDarkMode} color={theme.colors.primary} />
+                    </View>
 
-                <View style={[styles.settingItem, { borderBottomColor: theme.colors.outlineVariant }]}>
-                    <Text variant="bodyLarge">Dark Mode</Text>
-                    <Switch value={preferences.isDarkMode} onValueChange={toggleDarkMode} color={theme.colors.primary} />
-                </View>
+                    <View style={[styles.settingItem, { borderBottomColor: theme.colors.outlineVariant }]}>
+                        <Text variant="bodyLarge">Notifications</Text>
+                        <Switch value={preferences.notificationsEnabled} onValueChange={toggleNotifications} color={theme.colors.primary} />
+                    </View>
 
-                <View style={[styles.settingItem, { borderBottomColor: theme.colors.outlineVariant }]}>
-                    <Text variant="bodyLarge">Notifications</Text>
-                    <Switch value={preferences.notificationsEnabled} onValueChange={toggleNotifications} color={theme.colors.primary} />
-                </View>
+                    <View style={[styles.settingItem, { borderBottomColor: theme.colors.outlineVariant }]}>
+                        <Text variant="bodyLarge">Biometric Unlock</Text>
+                        <Switch value={preferences.biometricsEnabled} onValueChange={handleToggleBiometrics} color={theme.colors.primary} />
+                    </View>
 
-                <View style={[styles.settingItem, { borderBottomColor: theme.colors.outlineVariant }]}>
-                    <Text variant="bodyLarge">Biometric Unlock</Text>
-                    <Switch value={preferences.biometricsEnabled} onValueChange={handleToggleBiometrics} color={theme.colors.primary} />
-                </View>
+                    <View style={styles.divider} />
 
-                <View style={styles.divider} />
+                    <Text variant="titleMedium" style={[styles.sectionTitle, { color: theme.colors.onSurfaceVariant }]}>App Preferences</Text>
 
-                <Text variant="titleMedium" style={[styles.sectionTitle, { color: theme.colors.onSurfaceVariant }]}>App Preferences</Text>
+                    <Menu
+                        visible={currencyMenuVisible}
+                        onDismiss={() => setCurrencyMenuVisible(false)}
+                        anchor={
+                            <List.Item
+                                title="Currency"
+                                titleStyle={{ fontSize: 16 }}
+                                description={preferences.currency}
+                                descriptionStyle={{ color: theme.colors.primary }}
+                                onPress={() => setCurrencyMenuVisible(true)}
+                                right={props => <List.Icon {...props} icon="chevron-right" />}
+                                style={[styles.settingItem, { paddingVertical: 8, paddingHorizontal: 0 }]}
+                            />
+                        }
+                    >
+                        {currencies.map((curr) => (
+                            <Menu.Item
+                                key={curr}
+                                onPress={() => {
+                                    setCurrency(curr);
+                                    setCurrencyMenuVisible(false);
+                                }}
+                                title={curr}
+                                leadingIcon={preferences.currency === curr ? "check" : undefined}
+                            />
+                        ))}
+                    </Menu>
 
-                <Menu
-                    visible={currencyMenuVisible}
-                    onDismiss={() => setCurrencyMenuVisible(false)}
-                    anchor={
-                        <List.Item
-                            title="Currency"
-                            titleStyle={{ fontSize: 16 }}
-                            description={preferences.currency}
-                            descriptionStyle={{ color: theme.colors.primary }}
-                            onPress={() => setCurrencyMenuVisible(true)}
-                            right={props => <List.Icon {...props} icon="chevron-right" />}
-                            style={[styles.settingItem, { paddingVertical: 8, paddingHorizontal: 0 }]}
-                        />
-                    }
-                >
-                    {currencies.map((curr) => (
-                        <Menu.Item
-                            key={curr}
-                            onPress={() => {
-                                setCurrency(curr);
-                                setCurrencyMenuVisible(false);
-                            }}
-                            title={curr}
-                            leadingIcon={preferences.currency === curr ? "check" : undefined}
-                        />
-                    ))}
-                </Menu>
-
-            </ScrollView>
-        </SafeAreaView>
+                </ScrollView>
+            </SafeAreaView>
+        </PaperProvider>
     );
 }
 

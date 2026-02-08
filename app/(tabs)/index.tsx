@@ -1,73 +1,59 @@
 import React, { useState, useMemo } from 'react';
 import { View, ScrollView, StyleSheet, TouchableOpacity } from 'react-native';
-import { Text, Card, useTheme, Button, Avatar, Menu, Divider } from 'react-native-paper';
+import { Text, Card, useTheme, Button, Avatar, Menu, Divider, Searchbar } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useUser } from '../../context/UserContext';
 import { useBills, Bill } from '../../context/BillContext';
 import { usePreferences } from '../../context/UserPreferencesContext';
+import { MONTHS, parseDate, getPayPeriodInterval, getBillStatusColor } from '../../utils/date';
 
-const MONTHS = [
-    'January', 'February', 'March', 'April', 'May', 'June',
-    'July', 'August', 'September', 'October', 'November', 'December'
+const CATEGORIES = [
+    'Housing',
+    'Utilities',
+    'Food & Dining',
+    'Transportation',
+    'Entertainment',
+    'Health & Fitness',
+    'Shopping',
+    'Insurance',
+    'Personal Care',
+    'Education',
+    'Subscriptions',
+    'Investments',
+    'Debt & Loans',
+    'Credit Card',
+    'Student Loan',
+    'Gifts & Donations',
+    'Taxes',
+    'Travel',
+    'Pets',
+    'Other',
+    'Custom'
 ];
 
-// Sync with bills.tsx logic (MM-DD-YYYY)
-const parseDate = (dateStr: string) => {
-    const [month, day, year] = dateStr.split('-').map(Number);
-    return new Date(year, month - 1, day);
-};
-
-// Helper to get pay period interval based on preferences
-const getPayPeriodInterval = (
-    startAnchor: number,
-    frequency: 'weekly' | 'bi-weekly' | 'monthly',
-    offset = 0
-) => {
-    const anchorDate = new Date(startAnchor);
-    const now = new Date();
-
-    // Calculate days since anchor
-    const diffTime = now.getTime() - anchorDate.getTime();
-    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-
-    let periodLengthDays = 14; // Default bi-weekly
-    if (frequency === 'weekly') periodLengthDays = 7;
-    if (frequency === 'monthly') {
-        // Monthly logic is trickier, simplifying for now to just show current month if offset is 0
-        // A robust monthly implementation would need to handle "same day next month" logic
-        const targetDate = new Date(now.getFullYear(), now.getMonth() + offset, 1);
-        const start = new Date(targetDate.getFullYear(), targetDate.getMonth(), anchorDate.getDate());
-        const end = new Date(start);
-        end.setMonth(start.getMonth() + 1);
-        end.setDate(end.getDate() - 1);
-        return { start, end };
-    }
-
-    const periodsPassed = Math.floor(diffDays / periodLengthDays) + offset;
-
-    const start = new Date(anchorDate);
-    start.setDate(anchorDate.getDate() + (periodsPassed * periodLengthDays));
-
-    const end = new Date(start);
-    end.setDate(start.getDate() + periodLengthDays - 1);
-
-    return { start, end };
-};
-
-const getBillStatusColor = (bill: Bill, theme: any) => {
-    if (bill.isPaid) {
-        return theme.dark ? theme.colors.success : '#1B5E20'; // Darker Green in light mode
-    }
-    const today = new Date();
-    const dueDate = parseDate(bill.dueDate);
-    const diffTime = dueDate.getTime() - today.getTime();
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-    if (diffDays <= 2) {
-        return theme.dark ? theme.colors.error : '#B71C1C'; // Darker Red in light mode
-    }
-    return theme.dark ? (theme.colors as any).warning : '#E65100'; // Darker Amber/Orange in light mode
+const CATEGORY_ICONS: Record<string, string> = {
+    'Housing': 'home',
+    'Utilities': 'flash',
+    'Food & Dining': 'silverware-fork-knife',
+    'Transportation': 'car',
+    'Entertainment': 'movie',
+    'Health & Fitness': 'heart-pulse',
+    'Shopping': 'shopping',
+    'Insurance': 'shield-check',
+    'Personal Care': 'face-man',
+    'Education': 'school',
+    'Subscriptions': 'calendar-refresh',
+    'Investments': 'trending-up',
+    'Debt & Loans': 'bank',
+    'Credit Card': 'credit-card',
+    'Student Loan': 'school',
+    'Gifts & Donations': 'gift',
+    'Taxes': 'file-document-outline',
+    'Travel': 'airplane',
+    'Pets': 'paw',
+    'Other': 'dots-horizontal',
+    'Custom': 'star'
 };
 
 export default function HomeScreen() {
@@ -76,9 +62,14 @@ export default function HomeScreen() {
     const { user } = useUser();
     const { bills } = useBills();
     const { preferences } = usePreferences();
-    const [filterPeriod, setFilterPeriod] = useState<'last' | 'this' | 'next' | 'all' | 'monthly'>('this');
+    const [filterPeriod, setFilterPeriod] = useState<'last' | 'this' | 'next' | 'all' | 'monthly'>('all');
     const [selectedMonth, setSelectedMonth] = useState(-1);
     const [showMonthMenu, setShowMonthMenu] = useState(false);
+    const [searchQuery, setSearchQuery] = useState('');
+
+    // Category Filter State
+    const [selectedCategory, setSelectedCategory] = useState<string>('All');
+    const [showCategoryMenu, setShowCategoryMenu] = useState(false);
 
     const currencySymbol = preferences.currency === 'EUR' ? '€' : '$';
 
@@ -88,44 +79,75 @@ export default function HomeScreen() {
         next: getPayPeriodInterval(preferences.payPeriodStart, preferences.payPeriodFrequency, 1),
     }), [preferences.payPeriodStart, preferences.payPeriodFrequency]);
 
-    const upcomingBills = useMemo(() => {
-        return bills
-            .filter(bill => !bill.isPaid) // Only show unpaid on home
-            .filter(bill => {
-                if (filterPeriod === 'all') return true;
-
-                const billDate = parseDate(bill.dueDate);
-                if (filterPeriod === 'monthly') {
-                    if (selectedMonth === -1) return true; // Show all for year if no month selected
-                    return billDate.getMonth() === selectedMonth && billDate.getFullYear() === new Date().getFullYear();
-                }
-
-                const interval = intervals[filterPeriod as keyof typeof intervals];
-                return billDate >= interval.start && billDate <= interval.end;
-            })
-            .sort((a, b) => parseDate(a.dueDate).getTime() - parseDate(b.dueDate).getTime());
-    }, [filterPeriod, selectedMonth, intervals, bills]);
-
-    const { totalDue, paidThisMonth } = useMemo(() => {
-        const now = new Date();
-        const currentMonth = now.getMonth();
-        const currentYear = now.getFullYear();
-
-        return bills.reduce((acc, bill) => {
-            const amount = parseFloat(bill.amount) || 0;
-            const billDate = parseDate(bill.dueDate);
-
-            if (!bill.isPaid) {
-                acc.totalDue += amount;
-            } else {
-                // Check if paid in current month (based on due date)
-                if (billDate.getMonth() === currentMonth && billDate.getFullYear() === currentYear) {
-                    acc.paidThisMonth += amount;
-                }
+    // Unified logic: First filter bills by period AND search AND category, then derive stats
+    const { upcomingBills, totalDue, paidTotal } = useMemo(() => {
+        const pertinentBills = bills.filter(bill => {
+            // Apply Search Filter first
+            if (searchQuery.length > 0 && !bill.title.toLowerCase().includes(searchQuery.toLowerCase())) {
+                return false;
             }
-            return acc;
-        }, { totalDue: 0, paidThisMonth: 0 });
-    }, [bills]);
+
+            // Apply Category Filter
+            if (selectedCategory !== 'All' && bill.category !== selectedCategory) {
+                // Note: If a custom category is used that isn't in the list, it won't match 'Custom' string unless the bill.category is literally 'Custom'.
+                // Users usually replace 'Custom' with their own text. 
+                // So selecting 'Custom' in dropdown effectively finds bills literally named 'Custom', which might be rare if they input a name.
+                // But selecting standard categories works fine.
+                return false;
+            }
+
+            if (filterPeriod === 'all') return true;
+
+            const billDate = parseDate(bill.dueDate);
+            if (filterPeriod === 'monthly') {
+                if (selectedMonth === -1) return true;
+                return billDate.getMonth() === selectedMonth && billDate.getFullYear() === new Date().getFullYear();
+            }
+
+            const interval = intervals[filterPeriod as keyof typeof intervals];
+            return billDate >= interval.start && billDate <= interval.end;
+        });
+
+        // upcomingBills are unpaid bills in this period
+        const upcoming = pertinentBills
+            .filter(bill => !bill.isPaid)
+            .sort((a, b) => parseDate(a.dueDate).getTime() - parseDate(b.dueDate).getTime());
+
+        // Calculate totals based on the filtered set
+        const due = upcoming.reduce((sum, bill) => sum + (parseFloat(bill.amount) || 0), 0);
+
+        // For 'all' view, we might want "Paid This Month" as context, 
+        // but for specific periods, we want "Paid In Period".
+        let paid = 0;
+
+        // If searching or filtering by category, show exact matches for paid total too
+        if (searchQuery.length > 0 || selectedCategory !== 'All') {
+            paid = pertinentBills
+                .filter(b => b.isPaid)
+                .reduce((sum, bill) => sum + (parseFloat(bill.amount) || 0), 0);
+        } else if (filterPeriod === 'all') {
+            // For All view w/o search/category, stick to "Paid This Month" logic for relevance
+            const now = new Date();
+            const currentMonth = now.getMonth();
+            const currentYear = now.getFullYear();
+            paid = bills
+                .filter(b => b.isPaid)
+                .reduce((sum, bill) => {
+                    const billDate = parseDate(bill.dueDate);
+                    if (billDate.getMonth() === currentMonth && billDate.getFullYear() === currentYear) {
+                        return sum + (parseFloat(bill.amount) || 0);
+                    }
+                    return sum;
+                }, 0);
+        } else {
+            // For specific periods, sum the paid bills IN that period
+            paid = pertinentBills
+                .filter(b => b.isPaid)
+                .reduce((sum, bill) => sum + (parseFloat(bill.amount) || 0), 0);
+        }
+
+        return { upcomingBills: upcoming, totalDue: due, paidTotal: paid };
+    }, [filterPeriod, selectedMonth, intervals, bills, searchQuery, selectedCategory]);
 
     return (
         <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
@@ -151,13 +173,17 @@ export default function HomeScreen() {
                 {/* Total Balance Card */}
                 <Card style={[styles.balanceCard, { backgroundColor: theme.colors.primary }]}>
                     <Card.Content>
-                        <Text variant="labelLarge" style={{ color: theme.colors.onPrimary, opacity: 0.9 }}>Total Outstanding</Text>
+                        <Text variant="labelLarge" style={{ color: theme.colors.onPrimary, opacity: 0.9 }}>
+                            {searchQuery.length > 0 || selectedCategory !== 'All' ? 'Outstanding (Filtered)' : (filterPeriod === 'all' ? 'Total Outstanding' : 'Outstanding (This Period)')}
+                        </Text>
                         <Text variant="displayMedium" style={{ fontWeight: 'bold', marginVertical: 8, color: theme.colors.onPrimary }}>
                             {currencySymbol}{totalDue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </Text>
                         <View style={styles.badgeRow}>
                             <View style={[styles.badge, { backgroundColor: 'rgba(255,255,255,0.15)' }]}>
-                                <Text variant="labelMedium" style={{ color: theme.colors.onPrimary }}>+ {currencySymbol}{paidThisMonth.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} paid this month</Text>
+                                <Text variant="labelMedium" style={{ color: theme.colors.onPrimary }}>
+                                    + {currencySymbol}{paidTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {searchQuery.length > 0 || selectedCategory !== 'All' ? 'paid (filtered)' : (filterPeriod === 'all' ? 'paid this month' : 'paid in period')}
+                                </Text>
                             </View>
                         </View>
                     </Card.Content>
@@ -168,57 +194,109 @@ export default function HomeScreen() {
                     <View style={{ flex: 1 }}>
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                             <Text variant="titleLarge" style={{ fontWeight: 'bold' }}>Up Next</Text>
-                            <Menu
-                                visible={showMonthMenu}
-                                onDismiss={() => setShowMonthMenu(false)}
-                                anchor={
-                                    <TouchableOpacity
-                                        onPress={() => {
-                                            setFilterPeriod('monthly');
-                                            setShowMonthMenu(true);
-                                        }}
-                                        style={[
-                                            styles.filterChip,
-                                            filterPeriod === 'monthly' && { backgroundColor: theme.colors.primaryContainer }
-                                        ]}
-                                    >
-                                        <Text
-                                            variant="labelSmall"
+
+                            <View style={{ flexDirection: 'row' }}>
+                                {/* Category Filter */}
+                                <Menu
+                                    visible={showCategoryMenu}
+                                    onDismiss={() => setShowCategoryMenu(false)}
+                                    anchor={
+                                        <TouchableOpacity
+                                            onPress={() => setShowCategoryMenu(true)}
                                             style={[
-                                                styles.filterChipText,
-                                                { color: filterPeriod === 'monthly' ? theme.colors.onPrimaryContainer : theme.colors.onSurfaceVariant }
+                                                styles.filterChip,
+                                                selectedCategory !== 'All' && { backgroundColor: theme.colors.primaryContainer }
                                             ]}
                                         >
-                                            {selectedMonth === -1 ? 'Select Month' : MONTHS[selectedMonth]}
-                                        </Text>
-                                    </TouchableOpacity>
-                                }
-                            >
-                                <ScrollView style={{ maxHeight: 300 }}>
-                                    <Menu.Item
-                                        onPress={() => {
-                                            setSelectedMonth(-1);
-                                            setFilterPeriod('monthly');
-                                            setShowMonthMenu(false);
-                                        }}
-                                        title="Select Month"
-                                        leadingIcon={selectedMonth === -1 ? 'check' : undefined}
-                                    />
-                                    <Divider />
-                                    {MONTHS.map((month, index) => (
+                                            <Text
+                                                variant="labelSmall"
+                                                style={[
+                                                    styles.filterChipText,
+                                                    { color: selectedCategory !== 'All' ? theme.colors.onPrimaryContainer : theme.colors.onSurfaceVariant }
+                                                ]}
+                                            >
+                                                {selectedCategory === 'All' ? 'Category' : selectedCategory}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    }
+                                >
+                                    <ScrollView style={{ maxHeight: 300 }}>
                                         <Menu.Item
-                                            key={month}
                                             onPress={() => {
-                                                setSelectedMonth(index);
+                                                setSelectedCategory('All');
+                                                setShowCategoryMenu(false);
+                                            }}
+                                            title="All Categories"
+                                            leadingIcon={selectedCategory === 'All' ? 'check' : undefined}
+                                        />
+                                        <Divider />
+                                        {CATEGORIES.map((cat) => (
+                                            <Menu.Item
+                                                key={cat}
+                                                onPress={() => {
+                                                    setSelectedCategory(cat);
+                                                    setShowCategoryMenu(false);
+                                                }}
+                                                title={cat}
+                                                leadingIcon={selectedCategory === cat ? 'check' : undefined}
+                                            />
+                                        ))}
+                                    </ScrollView>
+                                </Menu>
+
+                                {/* Month Filter */}
+                                <Menu
+                                    visible={showMonthMenu}
+                                    onDismiss={() => setShowMonthMenu(false)}
+                                    anchor={
+                                        <TouchableOpacity
+                                            onPress={() => {
+                                                setFilterPeriod('monthly');
+                                                setShowMonthMenu(true);
+                                            }}
+                                            style={[
+                                                styles.filterChip,
+                                                filterPeriod === 'monthly' && { backgroundColor: theme.colors.primaryContainer }
+                                            ]}
+                                        >
+                                            <Text
+                                                variant="labelSmall"
+                                                style={[
+                                                    styles.filterChipText,
+                                                    { color: filterPeriod === 'monthly' ? theme.colors.onPrimaryContainer : theme.colors.onSurfaceVariant }
+                                                ]}
+                                            >
+                                                {selectedMonth === -1 ? 'Select Month' : MONTHS[selectedMonth]}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    }
+                                >
+                                    <ScrollView style={{ maxHeight: 300 }}>
+                                        <Menu.Item
+                                            onPress={() => {
+                                                setSelectedMonth(-1);
                                                 setFilterPeriod('monthly');
                                                 setShowMonthMenu(false);
                                             }}
-                                            title={month}
-                                            leadingIcon={selectedMonth === index ? 'check' : undefined}
+                                            title="Select Month"
+                                            leadingIcon={selectedMonth === -1 ? 'check' : undefined}
                                         />
-                                    ))}
-                                </ScrollView>
-                            </Menu>
+                                        <Divider />
+                                        {MONTHS.map((month, index) => (
+                                            <Menu.Item
+                                                key={month}
+                                                onPress={() => {
+                                                    setSelectedMonth(index);
+                                                    setFilterPeriod('monthly');
+                                                    setShowMonthMenu(false);
+                                                }}
+                                                title={month}
+                                                leadingIcon={selectedMonth === index ? 'check' : undefined}
+                                            />
+                                        ))}
+                                    </ScrollView>
+                                </Menu>
+                            </View>
                         </View>
                         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll}>
                             {(['last', 'this', 'next', 'all'] as const).map((period) => (
@@ -237,24 +315,48 @@ export default function HomeScreen() {
                                             { color: filterPeriod === period ? theme.colors.onPrimaryContainer : theme.colors.onSurfaceVariant }
                                         ]}
                                     >
-                                        {period === 'last' ? 'Last Pay Period' : period === 'this' ? 'Current Pay Period' : period === 'next' ? 'Next Pay Period' : 'All Bills'}
+                                        {(() => {
+                                            if (period === 'all') return 'All Bills';
+                                            const isMonthly = preferences.payPeriodFrequency === 'monthly';
+                                            switch (period) {
+                                                case 'last': return isMonthly ? 'Last Month' : 'Last Pay Period';
+                                                case 'this': return isMonthly ? 'This Month' : 'Current Pay Period';
+                                                case 'next': return isMonthly ? 'Next Month' : 'Next Pay Period';
+                                                default: return period;
+                                            }
+                                        })()}
                                     </Text>
                                 </TouchableOpacity>
                             ))}
                         </ScrollView>
+
+                        <Searchbar
+                            placeholder="Search pending bills"
+                            onChangeText={setSearchQuery}
+                            value={searchQuery}
+                            style={styles.searchBar}
+                            inputStyle={{ minHeight: 0 }} // Fix for some paper versions
+                        />
+
                     </View>
                 </View>
 
                 {
-                    filterPeriod !== 'all' && filterPeriod !== 'monthly' && (
+                    searchQuery.length === 0 && filterPeriod !== 'all' && filterPeriod !== 'monthly' && (
                         <Text variant="labelSmall" style={styles.helperText}>
-                            Showing: {intervals[filterPeriod as keyof typeof intervals].start.toLocaleDateString()} - {intervals[filterPeriod as keyof typeof intervals].end.toLocaleDateString()}
+                            Showing: {
+                                (() => {
+                                    const range = intervals[filterPeriod as keyof typeof intervals];
+                                    if (!range || !range.start || isNaN(range.start.getTime())) return 'Invalid Period';
+                                    return `${range.start.toLocaleDateString()} - ${range.end.toLocaleDateString()}`;
+                                })()
+                            }
                         </Text>
                     )
                 }
 
                 {
-                    filterPeriod === 'monthly' && (
+                    searchQuery.length === 0 && filterPeriod === 'monthly' && (
                         <Text variant="labelSmall" style={styles.helperText}>
                             Showing bills for {MONTHS[selectedMonth]} {new Date().getFullYear()}
                         </Text>
@@ -285,8 +387,9 @@ export default function HomeScreen() {
                                 left={(props) => (
                                     <Avatar.Icon
                                         {...props}
-                                        icon={bill.category === 'Entertainment' ? 'movie' : bill.category === 'Housing' ? 'home' : 'flash'}
-                                        style={{ backgroundColor: bill.category === 'Entertainment' ? '#E50914' : bill.category === 'Housing' ? theme.colors.primary : (theme.colors as any).warning }}
+                                        icon={CATEGORY_ICONS[bill.category as keyof typeof CATEGORY_ICONS] || 'star'}
+                                        style={{ backgroundColor: ['Housing', 'Utilities', 'Transportation'].includes(bill.category) ? theme.colors.primary : theme.colors.surfaceVariant }}
+                                        color={['Housing', 'Utilities', 'Transportation'].includes(bill.category) ? theme.colors.onPrimary : theme.colors.onSurfaceVariant}
                                     />
                                 )}
                                 right={(props) => (
@@ -299,7 +402,7 @@ export default function HomeScreen() {
                     )) : (
                         <View style={styles.emptyContainer}>
                             <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant }}>
-                                No bills found for the selected period.
+                                {searchQuery.length > 0 || selectedCategory !== 'All' ? 'No bills match your filters.' : 'No bills found for the selected period.'}
                             </Text>
                         </View>
                     )
@@ -344,7 +447,14 @@ const styles = StyleSheet.create({
         marginBottom: 12,
     },
     filterScroll: {
+        marginBottom: 12,
+    },
+    searchBar: {
+        height: 40,
+        borderRadius: 12,
         marginBottom: 8,
+        elevation: 0,
+        backgroundColor: 'rgba(0,0,0,0.05)',
     },
     filterChip: {
         paddingVertical: 4,

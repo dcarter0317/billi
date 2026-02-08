@@ -5,8 +5,12 @@ import { Text, TextInput, Button, useTheme, Card, Divider, IconButton, Checkbox 
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { useBills } from '../context/BillContext';
+import { useBills, Bill } from '../context/BillContext';
 import { usePreferences } from '../context/UserPreferencesContext';
+import { formatDate, parseDate } from '../utils/date';
+
+const FREQUENCIES = ['Every Month', 'Every Week', 'Twice a Week', 'Twice a Month', 'Every Other Week', 'Installments'];
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 const CATEGORIES = [
     'Housing',
@@ -28,21 +32,27 @@ const CATEGORIES = [
     'Taxes',
     'Travel',
     'Pets',
-    'Other'
+    'Other',
+    'Custom'
 ];
 
-const formatDate = (date: Date) => {
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    const year = date.getFullYear();
-    return `${month}-${day}-${year}`;
-};
+
 
 export default function AddBillScreen() {
     const theme = useTheme();
     const router = useRouter();
     const params = useLocalSearchParams();
     const { addBill, updateBill } = useBills();
+
+    const getOrdinalSuffix = (day: number) => {
+        if (day > 3 && day < 21) return 'th';
+        switch (day % 10) {
+            case 1: return "st";
+            case 2: return "nd";
+            case 3: return "rd";
+            default: return "th";
+        }
+    };
     const { preferences } = usePreferences();
 
     const currencySymbol = preferences.currency === 'EUR' ? '€' : '$';
@@ -56,16 +66,18 @@ export default function AddBillScreen() {
     const pCategory = Array.isArray(params.category) ? params.category[0] : params.category;
     const pIsPaid = params.isPaid === 'true';
     const pIsCleared = params.isCleared === 'true';
+    const pRecurrenceDay = Array.isArray(params.recurrenceDay) ? params.recurrenceDay[0] : params.recurrenceDay;
+    const pFrequency = Array.isArray(params.frequency) ? params.frequency[0] : params.frequency;
+    const pDueDays = Array.isArray(params.dueDays) ? params.dueDays[0] : params.dueDays;
+    const pTotalInstallments = Array.isArray(params.totalInstallments) ? params.totalInstallments[0] : params.totalInstallments;
+    const pPaidInstallments = Array.isArray(params.paidInstallments) ? params.paidInstallments[0] : params.paidInstallments;
 
-    console.log('AddBillScreen [Mount] Params:', { id, isEdit, pTitle, pAmount, pDueDate, pCategory, pIsPaid, pIsCleared });
+    console.log('AddBillScreen [Mount] Params:', { id, isEdit, pTitle, pAmount, pDueDate, pCategory, pIsPaid, pIsCleared, pFrequency, pTotalInstallments });
 
     // Helper for date parsing (MM-DD-YYYY) to Date object
     const parseFormattedDate = (dateStr?: string) => {
         if (!dateStr) return new Date();
-        const parts = dateStr.split('-');
-        if (parts.length !== 3) return new Date();
-        const [month, day, year] = parts.map(Number);
-        return new Date(year, month - 1, day);
+        return parseDate(dateStr);
     };
 
     const [title, setTitle] = useState(pTitle || '');
@@ -73,9 +85,37 @@ export default function AddBillScreen() {
     const [date, setDate] = useState(isEdit ? parseFormattedDate(pDueDate) : new Date());
     const [showDatePicker, setShowDatePicker] = useState(false);
     const [category, setCategory] = useState(pCategory || 'Utilities');
+    const [customCategory, setCustomCategory] = useState('');
     const [showCategoryMenu, setShowCategoryMenu] = useState(false);
     const [isPaid, setIsPaid] = useState(isEdit ? pIsPaid : false);
     const [isCleared, setIsCleared] = useState(isEdit ? pIsCleared : false);
+
+    // New State
+    const [frequency, setFrequency] = useState<NonNullable<Bill['frequency']>>(
+        (pFrequency as Bill['frequency']) || 'Every Month'
+    );
+    const [dueDays, setDueDays] = useState<number[]>(() => {
+        if (pDueDays) {
+            try {
+                return JSON.parse(pDueDays);
+            } catch (e) {
+                return [];
+            }
+        }
+        // Legacy fallback
+        if (pRecurrenceDay) {
+            return [parseInt(pRecurrenceDay)];
+        }
+        return [];
+    });
+
+    // Installments State
+    const [totalInstallments, setTotalInstallments] = useState(pTotalInstallments ? pTotalInstallments.toString() : '');
+    const [paidInstallments, setPaidInstallments] = useState(pPaidInstallments ? parseInt(pPaidInstallments) : 0);
+
+    const [showFrequencyMenu, setShowFrequencyMenu] = useState(false);
+    // For day picker modal
+    const [showDayPicker, setShowDayPicker] = useState(false);
 
     // Sync state if params change (robustness for some navigation edge cases)
     React.useEffect(() => {
@@ -83,12 +123,31 @@ export default function AddBillScreen() {
             setTitle(pTitle || '');
             setAmount(pAmount || '');
             setDate(parseFormattedDate(pDueDate));
-            setCategory(pCategory || 'Utilities');
+
+            // Category logic
+            if (pCategory && !CATEGORIES.includes(pCategory)) {
+                setCategory('Custom');
+                setCustomCategory(pCategory);
+            } else {
+                setCategory(pCategory || 'Utilities');
+                setCustomCategory('');
+            }
+
             setIsPaid(pIsPaid);
             setIsCleared(pIsCleared);
-            console.log('AddBillScreen [Sync] Latest Params:', { pTitle, pAmount, pDueDate, pIsPaid, pIsCleared });
+            setFrequency((pFrequency as Bill['frequency']) || 'Every Month');
+            if (pDueDays) {
+                try {
+                    setDueDays(JSON.parse(pDueDays));
+                } catch (e) { setDueDays([]); }
+            } else if (pRecurrenceDay) {
+                setDueDays([parseInt(pRecurrenceDay)]);
+            }
+            if (pTotalInstallments) setTotalInstallments(pTotalInstallments.toString());
+            if (pPaidInstallments) setPaidInstallments(parseInt(pPaidInstallments));
+            console.log('AddBillScreen [Sync] Latest Params:', { pTitle, pAmount, pFrequency, pTotalInstallments });
         }
-    }, [pTitle, pAmount, pDueDate, pCategory, pIsPaid, pIsCleared, isEdit]);
+    }, [pTitle, pAmount, pDueDate, pCategory, pIsPaid, pIsCleared, pFrequency, pDueDays, pRecurrenceDay, isEdit]);
 
     const onDateChange = (event: any, selectedDate?: Date) => {
         if (Platform.OS === 'android') {
@@ -98,6 +157,77 @@ export default function AddBillScreen() {
             setDate(selectedDate);
         }
     };
+
+    // Helper to calculate next due date based on selected days
+    const calculateNextDueDate = (days: number[], freq: string): Date => {
+        const today = new Date();
+        const currentDay = today.getDay(); // 0-6
+        const currentDate = today.getDate(); // 1-31
+
+        let nextDate = new Date(today);
+
+        if (freq.includes('Week')) {
+            // Find the next day in the list that is today or later
+            // Sort days first
+            const sortedDays = [...days].sort((a, b) => a - b);
+
+            // Find first day >= currentDay
+            const nextDayIndex = sortedDays.find(d => d >= currentDay);
+
+            if (nextDayIndex !== undefined) {
+                // It's later this week (or today)
+                // However, if it is today, we might want to check if it's already "paid" logic? 
+                // For now, let's assume if it is today, it is due today.
+                nextDate.setDate(today.getDate() + (nextDayIndex - currentDay));
+            } else {
+                // It's in the next week. Pick the first day of the list.
+                const firstDay = sortedDays[0];
+                nextDate.setDate(today.getDate() + (7 - currentDay + firstDay));
+            }
+        } else if (freq.includes('Month') || freq === 'Installments') {
+            // Month logic similar... 
+            // Find next date >= currentDate
+            const sortedDays = [...days].sort((a, b) => a - b);
+            const nextDay = sortedDays.find(d => d >= currentDate);
+
+            if (nextDay !== undefined) {
+                // Due later this month
+                // Validate if day exists in this month (e.g. 31st in Feb)
+                // Simple logic: setDate. JS auto-adjusts (e.g. Feb 30 -> Mar 2), which might be okay or not.
+                // Better: Check max days in current month.
+                nextDate.setDate(nextDay);
+                // If rolling over month (e.g. today is Jan 31, set Feb 31 -> Mar 3), handle strictly?
+                // Let's stick to simple JS Date behavior for now or just simple setDate.
+            } else {
+                // Next month
+                nextDate.setMonth(nextDate.getMonth() + 1);
+                nextDate.setDate(sortedDays[0]);
+            }
+        }
+        return nextDate;
+    };
+
+    // Effect to update Date when Due Days change for recurring bills
+    React.useEffect(() => {
+        if (frequency !== 'Every Month' && frequency !== 'Installments' && dueDays.length > 0) {
+            // For Every Week, Twice a Week, etc.
+            // Auto update the "Date" state which is the effective due date
+            const next = calculateNextDueDate(dueDays, frequency);
+            setDate(next);
+        }
+        // For 'Every Month' / 'Installments', we usually let them pick a specific date 
+        // BUT user asked to "change due date option... to day of the week" only for weekly.
+        // Effectively merging them.
+        // Let's apply this logic to Month too for consistency?
+        // "change the due date option when the frequency is set to every week, twice a week and every other week"
+        // So for Monthly, maybe keep it enabling the calendar picker? 
+        // But we have "Day of Month" picker too.
+        // Let's enforce the Day Picker for all recurring to be consistent.
+        if ((frequency.includes('Month') || frequency === 'Installments') && dueDays.length > 0) {
+            const next = calculateNextDueDate(dueDays, frequency);
+            setDate(next);
+        }
+    }, [dueDays, frequency]);
 
     const [saving, setSaving] = useState(false);
 
@@ -113,24 +243,36 @@ export default function AddBillScreen() {
             console.log('AddBillScreen [handleSave] isEdit:', isEdit, 'ID:', id);
 
             if (isEdit && id) {
+                const finalCategory = category === 'Custom' ? customCategory : category;
+
                 console.log('AddBillScreen -> updateBill:', id);
                 await updateBill(id, {
                     title,
                     amount,
                     dueDate: finalDueDate,
-                    category,
+                    category: finalCategory,
                     isPaid,
-                    isCleared
+                    isCleared,
+                    frequency,
+                    dueDays,
+                    totalInstallments: frequency === 'Installments' ? parseInt(totalInstallments) : undefined,
+                    paidInstallments: frequency === 'Installments' ? paidInstallments : undefined
                 });
             } else {
+                const finalCategory = category === 'Custom' ? customCategory : category;
+
                 console.log('AddBillScreen -> addBill');
                 await addBill({
                     title,
                     amount,
                     dueDate: finalDueDate,
-                    category,
+                    category: finalCategory,
                     isPaid,
-                    isCleared
+                    isCleared,
+                    frequency,
+                    dueDays,
+                    totalInstallments: frequency === 'Installments' ? parseInt(totalInstallments) : undefined,
+                    paidInstallments: frequency === 'Installments' ? paidInstallments : 0
                 });
             }
             router.back();
@@ -145,10 +287,11 @@ export default function AddBillScreen() {
     return (
         <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
             <KeyboardAvoidingView
-                behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                keyboardVerticalOffset={Platform.OS === 'ios' ? 110 : 0}
                 style={{ flex: 1 }}
             >
-                <ScrollView contentContainerStyle={styles.content}>
+                <ScrollView contentContainerStyle={[styles.content, { paddingBottom: 150 }]}>
                     <Text variant="headlineSmall" style={styles.title}>
                         {isEdit ? 'Edit Bill' : 'Bill Details'}
                     </Text>
@@ -176,21 +319,70 @@ export default function AddBillScreen() {
                                 contentStyle={{ paddingLeft: 24 }}
                             />
 
+                            {/* Conditional Due Date Input */}
+                            {/* If recurring (Week/Month/Installments), show specific Day Picker Trigger. 
+                                Logic: If frequency is active, show "Due On" which opens Day Picker. 
+                                Hide the generic Calendar Picker unless it' One Time (which we don't strictly have, defaulting to Every Month usually).
+                                Wait, "Every Month" is default. 
+                                Let's say: 
+                                - For Weekly/Monthly: Show "Due Day" selector (Day of Week / Day of Month).
+                                - Display the calculated "Next Due: MM/DD/YYYY" as read-only info.
+                                - Hide the manual DatePicker.
+                             */}
+
+                            {/* Re-ordering: Frequency first, then Due specifics */}
+
+                            {/* Frequency Selection */}
                             <TouchableOpacity
-                                onPress={() => setShowDatePicker(true)}
+                                onPress={() => setShowFrequencyMenu(true)}
                                 activeOpacity={0.7}
                             >
                                 <View pointerEvents="none">
                                     <TextInput
-                                        label="Due Date"
-                                        value={formatDate(date)}
+                                        label="Frequency"
+                                        value={frequency}
                                         mode="outlined"
                                         style={styles.input}
                                         editable={false}
-                                        right={<TextInput.Icon icon="calendar-month" />}
+                                        right={<TextInput.Icon icon="repeat" />}
                                     />
                                 </View>
                             </TouchableOpacity>
+
+                            {/* Due specifics based on Frequency */}
+                            <TouchableOpacity
+                                onPress={() => setShowDayPicker(true)}
+                                activeOpacity={0.7}
+                            >
+                                <View pointerEvents="none">
+                                    <TextInput
+                                        label={frequency.includes('Week') ? "Repeats On" : "Due Day"}
+                                        value={dueDays.length > 0
+                                            ? dueDays.map(d => frequency.includes('Week') ? WEEKDAYS[d] : d + getOrdinalSuffix(d)).join(', ')
+                                            : 'Select days'}
+                                        mode="outlined"
+                                        style={styles.input}
+                                        editable={false}
+                                        right={<TextInput.Icon icon="calendar-text" />}
+                                    />
+                                </View>
+                            </TouchableOpacity>
+
+                            {/* Calculated Next Due Date (Read Only) - Only show for 'Every Month' */}
+                            {frequency === 'Every Month' && (
+                                <TextInput
+                                    label="Next Due Date"
+                                    value={formatDate(date)}
+                                    mode="outlined"
+                                    style={[styles.input, { backgroundColor: theme.colors.surfaceVariant }]}
+                                    editable={false}
+                                    right={<TextInput.Icon icon="calendar-lock" />} // Icon indicating it's calculated
+                                />
+                            )}
+
+                            {/* Hidden DatePicker Trigger - only if we truly need manual override, but user asked to change it to Day of Week. 
+                                So we effectively removed the manual DatePicker for these modes.
+                            */}
 
                             {showDatePicker && (
                                 Platform.OS === 'ios' ? (
@@ -227,6 +419,193 @@ export default function AddBillScreen() {
                                 )
                             )}
 
+                            {/* Previously Frequency/DueDays were here. Moved up. */}
+
+                            {/* Previously Due Days Trigger was here. Moved up. */}
+
+                            {/* Installments Input - Only if Installments is selected */}
+                            {frequency === 'Installments' && (
+                                <View>
+                                    <TextInput
+                                        label="Total Number of Installments"
+                                        value={totalInstallments}
+                                        onChangeText={(text) => setTotalInstallments(text.replace(/[^0-9]/g, ''))}
+                                        mode="outlined"
+                                        keyboardType="number-pad"
+                                        style={styles.input}
+                                        placeholder="e.g. 4"
+                                    />
+                                    {isEdit && (
+                                        <TextInput
+                                            label="Paid Installments"
+                                            value={paidInstallments.toString()}
+                                            onChangeText={(text) => {
+                                                const val = parseInt(text.replace(/[^0-9]/g, '')) || 0;
+                                                setPaidInstallments(val);
+                                            }}
+                                            mode="outlined"
+                                            keyboardType="number-pad"
+                                            style={styles.input}
+                                            placeholder="e.g. 1"
+                                        />
+                                    )}
+                                </View>
+                            )}
+
+                            {/* Frequency Picker Modal */}
+                            <Modal
+                                visible={showFrequencyMenu}
+                                transparent={true}
+                                animationType="slide"
+                                onRequestClose={() => setShowFrequencyMenu(false)}
+                            >
+                                <View style={styles.modalOverlay}>
+                                    <View style={[styles.modalContent, { backgroundColor: theme.colors.surface }]}>
+                                        <View style={styles.modalHeader}>
+                                            <Text variant="titleLarge" style={{ fontWeight: 'bold' }}>Select Frequency</Text>
+                                            <IconButton
+                                                icon="close"
+                                                onPress={() => setShowFrequencyMenu(false)}
+                                            />
+                                        </View>
+                                        <Divider />
+                                        <FlatList
+                                            data={FREQUENCIES}
+                                            keyExtractor={(item) => item}
+                                            renderItem={({ item }) => (
+                                                <TouchableOpacity
+                                                    style={styles.categoryItem}
+                                                    onPress={() => {
+                                                        setFrequency(item as any);
+                                                        setDueDays([]); // Reset days on frequency change
+                                                        setShowFrequencyMenu(false);
+                                                    }}
+                                                >
+                                                    <Text variant="bodyLarge">{item}</Text>
+                                                    {frequency === item && (
+                                                        <IconButton icon="check" iconColor={theme.colors.primary} />
+                                                    )}
+                                                </TouchableOpacity>
+                                            )}
+                                            ItemSeparatorComponent={() => <Divider />}
+                                            contentContainerStyle={{ paddingBottom: 40 }}
+                                        />
+                                    </View>
+                                </View>
+                            </Modal>
+
+                            {/* Day Picker Modal */}
+                            <Modal
+                                visible={showDayPicker}
+                                transparent={true}
+                                animationType="slide"
+                                onRequestClose={() => setShowDayPicker(false)}
+                            >
+                                <View style={styles.modalOverlay}>
+                                    <View style={[styles.modalContent, { backgroundColor: theme.colors.surface, height: '80%' }]}>
+                                        <View style={styles.modalHeader}>
+                                            <Text variant="titleLarge" style={{ fontWeight: 'bold' }}>
+                                                Select {frequency.includes('Week') ? 'Day of Week' : 'Day of Month'}
+                                            </Text>
+                                            <Button onPress={() => setShowDayPicker(false)}>Done</Button>
+                                        </View>
+                                        {/* Helper Text */}
+                                        <Text style={{ marginBottom: 10, alignSelf: 'center', color: theme.colors.secondary }}>
+                                            {frequency === 'Twice a Month' || frequency === 'Twice a Week' ? 'Select 2 days' :
+                                                (frequency === 'Every Month' || frequency === 'Installments' || frequency === 'Every Week') ? 'Select 1 day' :
+                                                    'Select day(s)'}
+                                        </Text>
+
+                                        <Divider style={{ marginBottom: 10 }} />
+
+                                        <ScrollView contentContainerStyle={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', paddingBottom: 40 }}>
+                                            {frequency.includes('Week') ? (
+                                                // Weekly View
+                                                WEEKDAYS.map((day, index) => {
+                                                    const isSelected = dueDays.includes(index);
+                                                    return (
+                                                        <TouchableOpacity
+                                                            key={day}
+                                                            style={[
+                                                                styles.dayItem,
+                                                                { backgroundColor: isSelected ? theme.colors.primaryContainer : theme.colors.surfaceVariant }
+                                                            ]}
+                                                            onPress={() => {
+                                                                let newDays = [...dueDays];
+                                                                if (isSelected) {
+                                                                    newDays = newDays.filter(d => d !== index);
+                                                                } else {
+                                                                    // Constraints
+                                                                    if (frequency === 'Every Week' && newDays.length >= 1) {
+                                                                        // If purely single select, replace. 
+                                                                        // But prompt said "select more than once day" for "Twice a month or every other week".
+                                                                        // For "Every Week", usually single. Let's enforce single for Every Week.
+                                                                        newDays = [index];
+                                                                    } else {
+                                                                        newDays.push(index);
+                                                                    }
+                                                                }
+                                                                // Special handling for Twice a Week in Week view (which is this block)
+                                                                if (frequency === 'Twice a Week') {
+                                                                    // Enforce max 2
+                                                                    if (newDays.length > 2) {
+                                                                        newDays.shift();
+                                                                    }
+                                                                }
+                                                                newDays.sort((a, b) => a - b);
+                                                                setDueDays(newDays);
+                                                            }}
+                                                        >
+                                                            <Text style={{ color: isSelected ? theme.colors.onPrimaryContainer : theme.colors.onSurfaceVariant }}>{day}</Text>
+                                                        </TouchableOpacity>
+                                                    );
+                                                })
+                                            ) : (
+                                                // Monthly View
+                                                Array.from({ length: 31 }, (_, i) => i + 1).map((day) => {
+                                                    const isSelected = dueDays.includes(day);
+                                                    return (
+                                                        <TouchableOpacity
+                                                            key={day}
+                                                            style={[
+                                                                styles.dayItem,
+                                                                {
+                                                                    backgroundColor: isSelected ? theme.colors.primaryContainer : theme.colors.surfaceVariant,
+                                                                    width: 50, height: 50, borderRadius: 25
+                                                                }
+                                                            ]}
+                                                            onPress={() => {
+                                                                let newDays = [...dueDays];
+                                                                if (isSelected) {
+                                                                    newDays = newDays.filter(d => d !== day);
+                                                                } else {
+                                                                    if (frequency === 'Every Month' || frequency === 'Installments') {
+                                                                        newDays = [day];
+                                                                    } else if (frequency === 'Twice a Month' || frequency === 'Twice a Week') {
+                                                                        if (newDays.length >= 2) {
+                                                                            newDays.shift();
+                                                                            newDays.push(day);
+                                                                        } else {
+                                                                            newDays.push(day);
+                                                                        }
+                                                                    } else {
+                                                                        newDays.push(day);
+                                                                    }
+                                                                }
+                                                                newDays.sort((a, b) => a - b);
+                                                                setDueDays(newDays);
+                                                            }}
+                                                        >
+                                                            <Text style={{ color: isSelected ? theme.colors.onPrimaryContainer : theme.colors.onSurfaceVariant }}>{day}</Text>
+                                                        </TouchableOpacity>
+                                                    );
+                                                })
+                                            )}
+                                        </ScrollView>
+                                    </View>
+                                </View>
+                            </Modal>
+
                             {/* Category Selection */}
                             <TouchableOpacity
                                 onPress={() => setShowCategoryMenu(true)}
@@ -243,6 +622,18 @@ export default function AddBillScreen() {
                                     />
                                 </View>
                             </TouchableOpacity>
+
+                            {/* Custom Category Input */}
+                            {category === 'Custom' && (
+                                <TextInput
+                                    label="Custom Category Name"
+                                    value={customCategory}
+                                    onChangeText={setCustomCategory}
+                                    mode="outlined"
+                                    style={styles.input}
+                                    placeholder="e.g. Server Hosting"
+                                />
+                            )}
 
                             <Divider style={{ marginVertical: 16 }} />
 
@@ -394,5 +785,13 @@ const styles = StyleSheet.create({
     checkboxRow: {
         flexDirection: 'row',
         alignItems: 'center',
+    },
+    dayItem: {
+        width: 60,
+        height: 60,
+        justifyContent: 'center',
+        alignItems: 'center',
+        margin: 8,
+        borderRadius: 12,
     }
 });
