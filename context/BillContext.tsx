@@ -15,6 +15,11 @@ export interface Bill {
     dueDays?: number[]; // 1-31 for months, 0-6 for weeks
     totalInstallments?: number;
     paidInstallments?: number;
+    totalInstallmentAmount?: string;
+    installmentStartDate?: string;
+    installmentEndDate?: string;
+    installmentRecurrence?: 'bi-weekly' | 'monthly';
+    remainingBalance?: string;
 }
 
 interface BillContextType {

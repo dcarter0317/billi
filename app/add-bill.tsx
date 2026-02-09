@@ -84,6 +84,7 @@ export default function AddBillScreen() {
     const [amount, setAmount] = useState(pAmount || '');
     const [date, setDate] = useState(isEdit ? parseFormattedDate(pDueDate) : new Date());
     const [showDatePicker, setShowDatePicker] = useState(false);
+    const [showStartDatePicker, setShowStartDatePicker] = useState(false);
     const [category, setCategory] = useState(pCategory || 'Utilities');
     const [customCategory, setCustomCategory] = useState('');
     const [showCategoryMenu, setShowCategoryMenu] = useState(false);
@@ -111,7 +112,13 @@ export default function AddBillScreen() {
 
     // Installments State
     const [totalInstallments, setTotalInstallments] = useState(pTotalInstallments ? pTotalInstallments.toString() : '');
-    const [paidInstallments, setPaidInstallments] = useState(pPaidInstallments ? parseInt(pPaidInstallments) : 0);
+    const [paidInstallments, setPaidInstallments] = useState(pPaidInstallments ? pPaidInstallments.toString() : '0');
+    const [installmentTotalAmount, setInstallmentTotalAmount] = useState(Array.isArray(params.totalInstallmentAmount) ? params.totalInstallmentAmount[0] : params.totalInstallmentAmount || '');
+    const [installmentStartDate, setInstallmentStartDate] = useState<Date>(params.installmentStartDate ? parseFormattedDate(params.installmentStartDate as string) : (isEdit ? parseFormattedDate(pDueDate) : new Date()));
+    const [installmentEndDate, setInstallmentEndDate] = useState(Array.isArray(params.installmentEndDate) ? params.installmentEndDate[0] : params.installmentEndDate || '');
+    const [installmentRecurrence, setInstallmentRecurrence] = useState<Bill['installmentRecurrence']>(
+        (params.installmentRecurrence as Bill['installmentRecurrence']) || 'monthly'
+    );
 
     const [showFrequencyMenu, setShowFrequencyMenu] = useState(false);
     // For day picker modal
@@ -144,10 +151,23 @@ export default function AddBillScreen() {
                 setDueDays([parseInt(pRecurrenceDay)]);
             }
             if (pTotalInstallments) setTotalInstallments(pTotalInstallments.toString());
-            if (pPaidInstallments) setPaidInstallments(parseInt(pPaidInstallments));
+            if (pPaidInstallments) setPaidInstallments(pPaidInstallments.toString());
+
+            const pInstTotalAmt = Array.isArray(params.totalInstallmentAmount) ? params.totalInstallmentAmount[0] : params.totalInstallmentAmount;
+            if (pInstTotalAmt) setInstallmentTotalAmount(pInstTotalAmt);
+
+            const pInstStart = Array.isArray(params.installmentStartDate) ? params.installmentStartDate[0] : params.installmentStartDate;
+            if (pInstStart) setInstallmentStartDate(parseFormattedDate(pInstStart as string));
+
+            const pInstEnd = Array.isArray(params.installmentEndDate) ? params.installmentEndDate[0] : params.installmentEndDate;
+            if (pInstEnd) setInstallmentEndDate(pInstEnd as string);
+
+            const pInstRec = Array.isArray(params.installmentRecurrence) ? params.installmentRecurrence[0] : params.installmentRecurrence;
+            if (pInstRec) setInstallmentRecurrence(pInstRec as Bill['installmentRecurrence']);
+
             console.log('AddBillScreen [Sync] Latest Params:', { pTitle, pAmount, pFrequency, pTotalInstallments });
         }
-    }, [pTitle, pAmount, pDueDate, pCategory, pIsPaid, pIsCleared, pFrequency, pDueDays, pRecurrenceDay, isEdit]);
+    }, [pTitle, pAmount, pDueDate, pCategory, pIsPaid, pIsCleared, pFrequency, pDueDays, pRecurrenceDay, isEdit, params.totalInstallmentAmount, params.installmentStartDate, params.installmentEndDate, params.installmentRecurrence]);
 
     const onDateChange = (event: any, selectedDate?: Date) => {
         if (Platform.OS === 'android') {
@@ -229,6 +249,25 @@ export default function AddBillScreen() {
         }
     }, [dueDays, frequency]);
 
+    // Installment End Date Calculation
+    React.useEffect(() => {
+        if (frequency === 'Installments' && installmentStartDate && totalInstallments) {
+            const count = parseInt(totalInstallments);
+            if (count > 0) {
+                const end = new Date(installmentStartDate);
+                if (installmentRecurrence === 'monthly') {
+                    const newMonth = end.getMonth() + (count - 1);
+                    end.setMonth(newMonth);
+                } else if (installmentRecurrence === 'bi-weekly') {
+                    end.setDate(end.getDate() + (count - 1) * 14);
+                }
+                setInstallmentEndDate(formatDate(end));
+            } else {
+                setInstallmentEndDate('');
+            }
+        }
+    }, [installmentStartDate, totalInstallments, installmentRecurrence, frequency]);
+
     const [saving, setSaving] = useState(false);
 
     const handleSave = async () => {
@@ -256,7 +295,12 @@ export default function AddBillScreen() {
                     frequency,
                     dueDays,
                     totalInstallments: frequency === 'Installments' ? parseInt(totalInstallments) : undefined,
-                    paidInstallments: frequency === 'Installments' ? paidInstallments : undefined
+                    paidInstallments: frequency === 'Installments' ? parseInt(paidInstallments) || 0 : undefined,
+                    totalInstallmentAmount: frequency === 'Installments' ? installmentTotalAmount : undefined,
+                    installmentStartDate: frequency === 'Installments' ? formatDate(installmentStartDate) : undefined,
+                    installmentEndDate: frequency === 'Installments' ? installmentEndDate : undefined,
+                    installmentRecurrence: frequency === 'Installments' ? installmentRecurrence : undefined,
+                    remainingBalance: frequency === 'Installments' ? ((parseFloat(installmentTotalAmount) || 0) - ((parseFloat(amount) || 0) * (parseInt(paidInstallments) || 0))).toFixed(2) : undefined
                 });
             } else {
                 const finalCategory = category === 'Custom' ? customCategory : category;
@@ -272,7 +316,12 @@ export default function AddBillScreen() {
                     frequency,
                     dueDays,
                     totalInstallments: frequency === 'Installments' ? parseInt(totalInstallments) : undefined,
-                    paidInstallments: frequency === 'Installments' ? paidInstallments : 0
+                    paidInstallments: frequency === 'Installments' ? parseInt(paidInstallments) || 0 : 0,
+                    totalInstallmentAmount: frequency === 'Installments' ? installmentTotalAmount : undefined,
+                    installmentStartDate: frequency === 'Installments' ? formatDate(installmentStartDate) : undefined,
+                    installmentEndDate: frequency === 'Installments' ? installmentEndDate : undefined,
+                    installmentRecurrence: frequency === 'Installments' ? installmentRecurrence : undefined,
+                    remainingBalance: frequency === 'Installments' ? ((parseFloat(installmentTotalAmount) || 0) - ((parseFloat(amount) || 0) * (parseInt(paidInstallments) || 0))).toFixed(2) : undefined
                 });
             }
             router.back();
@@ -307,31 +356,6 @@ export default function AddBillScreen() {
                                 placeholder="e.g. Electric Company"
                             />
 
-                            <TextInput
-                                label="Amount"
-                                value={amount}
-                                onChangeText={setAmount}
-                                mode="outlined"
-                                keyboardType="decimal-pad"
-                                style={styles.input}
-                                placeholder="0.00"
-                                left={<TextInput.Affix text={currencySymbol} />}
-                                contentStyle={{ paddingLeft: 24 }}
-                            />
-
-                            {/* Conditional Due Date Input */}
-                            {/* If recurring (Week/Month/Installments), show specific Day Picker Trigger. 
-                                Logic: If frequency is active, show "Due On" which opens Day Picker. 
-                                Hide the generic Calendar Picker unless it' One Time (which we don't strictly have, defaulting to Every Month usually).
-                                Wait, "Every Month" is default. 
-                                Let's say: 
-                                - For Weekly/Monthly: Show "Due Day" selector (Day of Week / Day of Month).
-                                - Display the calculated "Next Due: MM/DD/YYYY" as read-only info.
-                                - Hide the manual DatePicker.
-                             */}
-
-                            {/* Re-ordering: Frequency first, then Due specifics */}
-
                             {/* Frequency Selection */}
                             <TouchableOpacity
                                 onPress={() => setShowFrequencyMenu(true)}
@@ -349,41 +373,159 @@ export default function AddBillScreen() {
                                 </View>
                             </TouchableOpacity>
 
-                            {/* Due specifics based on Frequency */}
-                            <TouchableOpacity
-                                onPress={() => setShowDayPicker(true)}
-                                activeOpacity={0.7}
-                            >
-                                <View pointerEvents="none">
+                            {/* Conditional Fields based on Frequency */}
+                            {frequency === 'Installments' ? (
+                                <View>
                                     <TextInput
-                                        label={frequency.includes('Week') ? "Repeats On" : "Due Day"}
-                                        value={dueDays.length > 0
-                                            ? dueDays.map(d => frequency.includes('Week') ? WEEKDAYS[d] : d + getOrdinalSuffix(d)).join(', ')
-                                            : 'Select days'}
+                                        label="Total Installment Amount"
+                                        value={installmentTotalAmount}
+                                        onChangeText={setInstallmentTotalAmount}
                                         mode="outlined"
+                                        keyboardType="decimal-pad"
                                         style={styles.input}
-                                        editable={false}
-                                        right={<TextInput.Icon icon="calendar-text" />}
+                                        placeholder="0.00"
+                                        left={<TextInput.Affix text={currencySymbol} />}
+                                        contentStyle={{ paddingLeft: 24 }}
                                     />
-                                </View>
-                            </TouchableOpacity>
 
-                            {/* Calculated Next Due Date (Read Only) - Only show for 'Every Month' */}
-                            {frequency === 'Every Month' && (
-                                <TextInput
-                                    label="Next Due Date"
-                                    value={formatDate(date)}
-                                    mode="outlined"
-                                    style={[styles.input, { backgroundColor: theme.colors.surfaceVariant }]}
-                                    editable={false}
-                                    right={<TextInput.Icon icon="calendar-lock" />} // Icon indicating it's calculated
-                                />
+                                    <TextInput
+                                        label="Installment Amount"
+                                        value={amount}
+                                        onChangeText={setAmount}
+                                        mode="outlined"
+                                        keyboardType="decimal-pad"
+                                        style={styles.input}
+                                        placeholder="0.00"
+                                        left={<TextInput.Affix text={currencySymbol} />}
+                                        contentStyle={{ paddingLeft: 24 }}
+                                    />
+
+                                    <TextInput
+                                        label="Total Number of Installments"
+                                        value={totalInstallments}
+                                        onChangeText={(text) => setTotalInstallments(text.replace(/[^0-9]/g, ''))}
+                                        mode="outlined"
+                                        keyboardType="number-pad"
+                                        style={styles.input}
+                                        placeholder="e.g. 4"
+                                    />
+
+                                    <TextInput
+                                        label="Paid Installments"
+                                        value={paidInstallments}
+                                        onChangeText={(text) => setPaidInstallments(text.replace(/[^0-9]/g, ''))}
+                                        mode="outlined"
+                                        keyboardType="number-pad"
+                                        style={styles.input}
+                                        placeholder="0"
+                                    />
+
+                                    {/* Installment Recurrence */}
+                                    <View style={{ marginBottom: 16 }}>
+                                        <Text variant="bodyMedium" style={{ marginBottom: 8, color: theme.colors.onSurfaceVariant }}>Installment Recurrence</Text>
+                                        <View style={{ flexDirection: 'row', gap: 10 }}>
+                                            <Button
+                                                mode={installmentRecurrence === 'bi-weekly' ? 'contained' : 'outlined'}
+                                                onPress={() => setInstallmentRecurrence('bi-weekly')}
+                                                style={{ flex: 1 }}
+                                            >
+                                                Bi-Weekly
+                                            </Button>
+                                            <Button
+                                                mode={installmentRecurrence === 'monthly' ? 'contained' : 'outlined'}
+                                                onPress={() => setInstallmentRecurrence('monthly')}
+                                                style={{ flex: 1 }}
+                                            >
+                                                Monthly
+                                            </Button>
+                                        </View>
+                                    </View>
+
+                                    {/* Start Date */}
+                                    <TouchableOpacity
+                                        onPress={() => setShowStartDatePicker(true)}
+                                        activeOpacity={0.7}
+                                    >
+                                        <View pointerEvents="none">
+                                            <TextInput
+                                                label="Start Date"
+                                                value={formatDate(installmentStartDate)}
+                                                mode="outlined"
+                                                style={styles.input}
+                                                editable={false}
+                                                right={<TextInput.Icon icon="calendar" />}
+                                            />
+                                        </View>
+                                    </TouchableOpacity>
+
+                                    {/* Calculated End Date */}
+                                    <TextInput
+                                        label="End Date (Calculated)"
+                                        value={installmentEndDate}
+                                        mode="outlined"
+                                        style={[styles.input, { backgroundColor: theme.colors.surfaceVariant }]}
+                                        editable={false}
+                                        right={<TextInput.Icon icon="calendar-lock" />}
+                                    />
+
+                                    {/* Remaining Balance */}
+                                    {installmentTotalAmount && amount && (
+                                        <View style={styles.infoBox}>
+                                            <Text variant="labelLarge" style={{ color: theme.colors.secondary }}>Remaining Balance</Text>
+                                            <Text variant="headlineSmall" style={{ color: theme.colors.primary, fontWeight: 'bold' }}>
+                                                {currencySymbol}{((parseFloat(installmentTotalAmount) || 0) - ((parseFloat(amount) || 0) * (parseInt(paidInstallments) || 0))).toFixed(2)}
+                                            </Text>
+                                        </View>
+                                    )}
+                                </View>
+                            ) : (
+                                <View>
+                                    <TextInput
+                                        label="Amount"
+                                        value={amount}
+                                        onChangeText={setAmount}
+                                        mode="outlined"
+                                        keyboardType="decimal-pad"
+                                        style={styles.input}
+                                        placeholder="0.00"
+                                        left={<TextInput.Affix text={currencySymbol} />}
+                                        contentStyle={{ paddingLeft: 24 }}
+                                    />
+
+                                    {/* Due specifics based on Frequency */}
+                                    <TouchableOpacity
+                                        onPress={() => setShowDayPicker(true)}
+                                        activeOpacity={0.7}
+                                    >
+                                        <View pointerEvents="none">
+                                            <TextInput
+                                                label={frequency.includes('Week') ? "Repeats On" : "Due Day"}
+                                                value={dueDays.length > 0
+                                                    ? dueDays.map(d => frequency.includes('Week') ? WEEKDAYS[d] : d + getOrdinalSuffix(d)).join(', ')
+                                                    : 'Select days'}
+                                                mode="outlined"
+                                                style={styles.input}
+                                                editable={false}
+                                                right={<TextInput.Icon icon="calendar-text" />}
+                                            />
+                                        </View>
+                                    </TouchableOpacity>
+
+                                    {/* Calculated Next Due Date (Read Only) - Only show for 'Every Month' */}
+                                    {frequency === 'Every Month' && (
+                                        <TextInput
+                                            label="Next Due Date"
+                                            value={formatDate(date)}
+                                            mode="outlined"
+                                            style={[styles.input, { backgroundColor: theme.colors.surfaceVariant }]}
+                                            editable={false}
+                                            right={<TextInput.Icon icon="calendar-lock" />}
+                                        />
+                                    )}
+                                </View>
                             )}
 
-                            {/* Hidden DatePicker Trigger - only if we truly need manual override, but user asked to change it to Day of Week. 
-                                So we effectively removed the manual DatePicker for these modes.
-                            */}
-
+                            {/* showDatePicker Modal (for regular bills) */}
                             {showDatePicker && (
                                 Platform.OS === 'ios' ? (
                                     <Modal
@@ -419,37 +561,44 @@ export default function AddBillScreen() {
                                 )
                             )}
 
-                            {/* Previously Frequency/DueDays were here. Moved up. */}
-
-                            {/* Previously Due Days Trigger was here. Moved up. */}
-
-                            {/* Installments Input - Only if Installments is selected */}
-                            {frequency === 'Installments' && (
-                                <View>
-                                    <TextInput
-                                        label="Total Number of Installments"
-                                        value={totalInstallments}
-                                        onChangeText={(text) => setTotalInstallments(text.replace(/[^0-9]/g, ''))}
-                                        mode="outlined"
-                                        keyboardType="number-pad"
-                                        style={styles.input}
-                                        placeholder="e.g. 4"
+                            {showStartDatePicker && (
+                                Platform.OS === 'ios' ? (
+                                    <Modal
+                                        transparent={true}
+                                        animationType="slide"
+                                        visible={showStartDatePicker}
+                                        onRequestClose={() => setShowStartDatePicker(false)}
+                                    >
+                                        <View style={styles.modalOverlay}>
+                                            <View style={[styles.modalContent, { backgroundColor: theme.colors.surface, height: 'auto', paddingBottom: 40 }]}>
+                                                <View style={styles.modalHeader}>
+                                                    <Text variant="titleLarge" style={{ fontWeight: 'bold' }}>Select Start Date</Text>
+                                                    <Button onPress={() => setShowStartDatePicker(false)}>Done</Button>
+                                                </View>
+                                                <Divider />
+                                                <DateTimePicker
+                                                    value={installmentStartDate}
+                                                    mode="date"
+                                                    display="spinner"
+                                                    onChange={(event, selectedDate) => {
+                                                        if (selectedDate) setInstallmentStartDate(selectedDate);
+                                                    }}
+                                                    textColor={theme.colors.onSurface}
+                                                />
+                                            </View>
+                                        </View>
+                                    </Modal>
+                                ) : (
+                                    <DateTimePicker
+                                        value={installmentStartDate}
+                                        mode="date"
+                                        display="default"
+                                        onChange={(event, selectedDate) => {
+                                            setShowStartDatePicker(false);
+                                            if (selectedDate) setInstallmentStartDate(selectedDate);
+                                        }}
                                     />
-                                    {isEdit && (
-                                        <TextInput
-                                            label="Paid Installments"
-                                            value={paidInstallments.toString()}
-                                            onChangeText={(text) => {
-                                                const val = parseInt(text.replace(/[^0-9]/g, '')) || 0;
-                                                setPaidInstallments(val);
-                                            }}
-                                            mode="outlined"
-                                            keyboardType="number-pad"
-                                            style={styles.input}
-                                            placeholder="e.g. 1"
-                                        />
-                                    )}
-                                </View>
+                                )
                             )}
 
                             {/* Frequency Picker Modal */}
@@ -793,5 +942,16 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         margin: 8,
         borderRadius: 12,
+    },
+    infoBox: {
+        padding: 16,
+        backgroundColor: 'rgba(0, 0, 0, 0.03)',
+        borderRadius: 12,
+        alignItems: 'center',
+        marginTop: 8,
+        marginBottom: 16,
+        borderWidth: 1,
+        borderStyle: 'dashed',
+        borderColor: 'rgba(0, 0, 0, 0.1)',
     }
 });
