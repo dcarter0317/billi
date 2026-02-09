@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export interface Bill {
     id: string;
@@ -95,25 +96,45 @@ const DUMMY_BILLS: Bill[] = [
     { id: '38', title: 'Furniture Installment', amount: '150.00', dueDate: '04-26-2026', isPaid: false, isCleared: false, category: 'Shopping', frequency: 'Installments', totalInstallments: 6, paidInstallments: 3, dueDays: [26] },
 ];
 
+const STORAGE_KEY = 'billi_bills_data';
+
 export function BillProvider({ children }: { children: ReactNode }) {
     console.log('--- BILL PROVIDER MOUNTED: PLACEHOLDER DATA VERSION ---');
     const [bills, setBillsState] = useState<Bill[]>(DUMMY_BILLS);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
+    const refreshBills = async () => {
+        setLoading(true);
+        try {
+            const stored = await AsyncStorage.getItem(STORAGE_KEY);
+            if (stored) {
+                setBillsState(JSON.parse(stored));
+            } else {
+                // If it's the first time, use dummy data and save it
+                setBillsState(DUMMY_BILLS);
+                await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(DUMMY_BILLS));
+            }
+        } catch (err) {
+            console.error('Error loading bills:', err);
+            setError('Failed to load bills.');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const saveBillsToStorage = async (newBills: Bill[]) => {
+        try {
+            await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(newBills));
+        } catch (err) {
+            console.error('Error saving bills:', err);
+        }
+    };
+
     useEffect(() => {
         // Simulate initial load
         refreshBills();
     }, []);
-
-    const refreshBills = async () => {
-        setLoading(true);
-        // Simulate network delay
-        setTimeout(() => {
-            setBillsState(prev => [...prev]); // Just keep existing or reset to DUMMY if needed
-            setLoading(false);
-        }, 500);
-    };
 
     const addBill = async (bill: Omit<Bill, 'id'>) => {
         setLoading(true);
@@ -123,7 +144,9 @@ export function BillProvider({ children }: { children: ReactNode }) {
                 ...bill,
                 order: bills.length // Simple append order
             };
-            setBillsState(prev => [...prev, newBill]);
+            const updatedBills = [...bills, newBill];
+            setBillsState(updatedBills);
+            await saveBillsToStorage(updatedBills);
         } catch (err) {
             console.error('Error adding bill:', err);
             setError('Failed to add bill locally.');
@@ -133,11 +156,15 @@ export function BillProvider({ children }: { children: ReactNode }) {
     };
 
     const updateBill = async (id: string, updates: Partial<Bill>) => {
-        setBillsState(prev => prev.map(b => b.id === id ? { ...b, ...updates } : b));
+        const updatedBills = bills.map(b => b.id === id ? { ...b, ...updates } : b);
+        setBillsState(updatedBills);
+        await saveBillsToStorage(updatedBills);
     };
 
     const deleteBill = async (id: string) => {
-        setBillsState(prev => prev.filter(b => b.id !== id));
+        const updatedBills = bills.filter(b => b.id !== id);
+        setBillsState(updatedBills);
+        await saveBillsToStorage(updatedBills);
     };
 
     const toggleBillStatus = async (id: string) => {
@@ -166,11 +193,14 @@ export function BillProvider({ children }: { children: ReactNode }) {
     };
 
     const resetAllStatuses = async () => {
-        setBillsState(prev => prev.map(b => ({ ...b, isPaid: false, isCleared: false, clearedDate: undefined })));
+        const updatedBills = bills.map(b => ({ ...b, isPaid: false, isCleared: false, clearedDate: undefined }));
+        setBillsState(updatedBills);
+        await saveBillsToStorage(updatedBills);
     };
 
-    const setBills = (newBills: Bill[]) => {
+    const setBills = async (newBills: Bill[]) => {
         setBillsState(newBills);
+        await saveBillsToStorage(newBills);
     };
 
     return (

@@ -134,12 +134,6 @@ export default function BillsScreen() {
                                         pathname: '/add-bill',
                                         params: {
                                             id: item.id,
-                                            title: item.title,
-                                            amount: item.amount,
-                                            dueDate: item.dueDate,
-                                            category: item.category,
-                                            isPaid: String(item.isPaid),
-                                            isCleared: String(item.isCleared),
                                             isEdit: 'true'
                                         }
                                     })}

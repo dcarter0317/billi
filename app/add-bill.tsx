@@ -42,7 +42,7 @@ export default function AddBillScreen() {
     const theme = useTheme();
     const router = useRouter();
     const params = useLocalSearchParams();
-    const { addBill, updateBill } = useBills();
+    const { addBill, updateBill, bills } = useBills();
 
     const getOrdinalSuffix = (day: number) => {
         if (day > 3 && day < 21) return 'th';
@@ -60,19 +60,11 @@ export default function AddBillScreen() {
     // Safety check for ID and other params
     const id = Array.isArray(params.id) ? params.id[0] : params.id;
     const isEdit = params.isEdit === 'true' && !!id;
-    const pTitle = Array.isArray(params.title) ? params.title[0] : params.title;
-    const pAmount = Array.isArray(params.amount) ? params.amount[0] : params.amount;
-    const pDueDate = Array.isArray(params.dueDate) ? params.dueDate[0] : params.dueDate;
-    const pCategory = Array.isArray(params.category) ? params.category[0] : params.category;
-    const pIsPaid = params.isPaid === 'true';
-    const pIsCleared = params.isCleared === 'true';
-    const pRecurrenceDay = Array.isArray(params.recurrenceDay) ? params.recurrenceDay[0] : params.recurrenceDay;
-    const pFrequency = Array.isArray(params.frequency) ? params.frequency[0] : params.frequency;
-    const pDueDays = Array.isArray(params.dueDays) ? params.dueDays[0] : params.dueDays;
-    const pTotalInstallments = Array.isArray(params.totalInstallments) ? params.totalInstallments[0] : params.totalInstallments;
-    const pPaidInstallments = Array.isArray(params.paidInstallments) ? params.paidInstallments[0] : params.paidInstallments;
 
-    console.log('AddBillScreen [Mount] Params:', { id, isEdit, pTitle, pAmount, pDueDate, pCategory, pIsPaid, pIsCleared, pFrequency, pTotalInstallments });
+    // Find the bill in context if we're editing
+    const editingBill = isEdit ? bills.find(b => b.id === id) : null;
+
+    console.log('AddBillScreen [Mount] ID:', id, 'isEdit:', isEdit, 'Found Bill:', !!editingBill);
 
     // Helper for date parsing (MM-DD-YYYY) to Date object
     const parseFormattedDate = (dateStr?: string) => {
@@ -80,94 +72,62 @@ export default function AddBillScreen() {
         return parseDate(dateStr);
     };
 
-    const [title, setTitle] = useState(pTitle || '');
-    const [amount, setAmount] = useState(pAmount || '');
-    const [date, setDate] = useState(isEdit ? parseFormattedDate(pDueDate) : new Date());
+    const [title, setTitle] = useState('');
+    const [amount, setAmount] = useState('');
+    const [date, setDate] = useState(new Date());
     const [showDatePicker, setShowDatePicker] = useState(false);
     const [showStartDatePicker, setShowStartDatePicker] = useState(false);
-    const [category, setCategory] = useState(pCategory || 'Utilities');
+    const [category, setCategory] = useState('Utilities');
     const [customCategory, setCustomCategory] = useState('');
     const [showCategoryMenu, setShowCategoryMenu] = useState(false);
-    const [isPaid, setIsPaid] = useState(isEdit ? pIsPaid : false);
-    const [isCleared, setIsCleared] = useState(isEdit ? pIsCleared : false);
+    const [isPaid, setIsPaid] = useState(false);
+    const [isCleared, setIsCleared] = useState(false);
 
     // New State
-    const [frequency, setFrequency] = useState<NonNullable<Bill['frequency']>>(
-        (pFrequency as Bill['frequency']) || 'Every Month'
-    );
-    const [dueDays, setDueDays] = useState<number[]>(() => {
-        if (pDueDays) {
-            try {
-                return JSON.parse(pDueDays);
-            } catch (e) {
-                return [];
-            }
-        }
-        // Legacy fallback
-        if (pRecurrenceDay) {
-            return [parseInt(pRecurrenceDay)];
-        }
-        return [];
-    });
+    const [frequency, setFrequency] = useState<NonNullable<Bill['frequency']>>('Every Month');
+    const [dueDays, setDueDays] = useState<number[]>([]);
 
     // Installments State
-    const [totalInstallments, setTotalInstallments] = useState(pTotalInstallments ? pTotalInstallments.toString() : '');
-    const [paidInstallments, setPaidInstallments] = useState(pPaidInstallments ? pPaidInstallments.toString() : '0');
-    const [installmentTotalAmount, setInstallmentTotalAmount] = useState(Array.isArray(params.totalInstallmentAmount) ? params.totalInstallmentAmount[0] : params.totalInstallmentAmount || '');
-    const [installmentStartDate, setInstallmentStartDate] = useState<Date>(params.installmentStartDate ? parseFormattedDate(params.installmentStartDate as string) : (isEdit ? parseFormattedDate(pDueDate) : new Date()));
-    const [installmentEndDate, setInstallmentEndDate] = useState(Array.isArray(params.installmentEndDate) ? params.installmentEndDate[0] : params.installmentEndDate || '');
-    const [installmentRecurrence, setInstallmentRecurrence] = useState<Bill['installmentRecurrence']>(
-        (params.installmentRecurrence as Bill['installmentRecurrence']) || 'monthly'
-    );
+    const [totalInstallments, setTotalInstallments] = useState('');
+    const [paidInstallments, setPaidInstallments] = useState('0');
+    const [installmentTotalAmount, setInstallmentTotalAmount] = useState('');
+    const [installmentStartDate, setInstallmentStartDate] = useState<Date>(new Date());
+    const [installmentEndDate, setInstallmentEndDate] = useState('');
+    const [installmentRecurrence, setInstallmentRecurrence] = useState<Bill['installmentRecurrence']>('monthly');
 
     const [showFrequencyMenu, setShowFrequencyMenu] = useState(false);
     // For day picker modal
     const [showDayPicker, setShowDayPicker] = useState(false);
 
-    // Sync state if params change (robustness for some navigation edge cases)
+    // Sync state when editingBill is found or changes
     React.useEffect(() => {
-        if (isEdit) {
-            setTitle(pTitle || '');
-            setAmount(pAmount || '');
-            setDate(parseFormattedDate(pDueDate));
+        if (editingBill) {
+            setTitle(editingBill.title || '');
+            setAmount(editingBill.amount || '');
+            setDate(parseFormattedDate(editingBill.dueDate));
 
             // Category logic
-            if (pCategory && !CATEGORIES.includes(pCategory)) {
+            if (editingBill.category && !CATEGORIES.includes(editingBill.category)) {
                 setCategory('Custom');
-                setCustomCategory(pCategory);
+                setCustomCategory(editingBill.category);
             } else {
-                setCategory(pCategory || 'Utilities');
+                setCategory(editingBill.category || 'Utilities');
                 setCustomCategory('');
             }
 
-            setIsPaid(pIsPaid);
-            setIsCleared(pIsCleared);
-            setFrequency((pFrequency as Bill['frequency']) || 'Every Month');
-            if (pDueDays) {
-                try {
-                    setDueDays(JSON.parse(pDueDays));
-                } catch (e) { setDueDays([]); }
-            } else if (pRecurrenceDay) {
-                setDueDays([parseInt(pRecurrenceDay)]);
-            }
-            if (pTotalInstallments) setTotalInstallments(pTotalInstallments.toString());
-            if (pPaidInstallments) setPaidInstallments(pPaidInstallments.toString());
+            setIsPaid(editingBill.isPaid || false);
+            setIsCleared(editingBill.isCleared || false);
+            setFrequency(editingBill.frequency || 'Every Month');
+            setDueDays(editingBill.dueDays || []);
 
-            const pInstTotalAmt = Array.isArray(params.totalInstallmentAmount) ? params.totalInstallmentAmount[0] : params.totalInstallmentAmount;
-            if (pInstTotalAmt) setInstallmentTotalAmount(pInstTotalAmt);
-
-            const pInstStart = Array.isArray(params.installmentStartDate) ? params.installmentStartDate[0] : params.installmentStartDate;
-            if (pInstStart) setInstallmentStartDate(parseFormattedDate(pInstStart as string));
-
-            const pInstEnd = Array.isArray(params.installmentEndDate) ? params.installmentEndDate[0] : params.installmentEndDate;
-            if (pInstEnd) setInstallmentEndDate(pInstEnd as string);
-
-            const pInstRec = Array.isArray(params.installmentRecurrence) ? params.installmentRecurrence[0] : params.installmentRecurrence;
-            if (pInstRec) setInstallmentRecurrence(pInstRec as Bill['installmentRecurrence']);
-
-            console.log('AddBillScreen [Sync] Latest Params:', { pTitle, pAmount, pFrequency, pTotalInstallments });
+            if (editingBill.totalInstallments) setTotalInstallments(editingBill.totalInstallments.toString());
+            if (editingBill.paidInstallments !== undefined) setPaidInstallments(editingBill.paidInstallments.toString());
+            if (editingBill.totalInstallmentAmount) setInstallmentTotalAmount(editingBill.totalInstallmentAmount);
+            if (editingBill.installmentStartDate) setInstallmentStartDate(parseFormattedDate(editingBill.installmentStartDate));
+            if (editingBill.installmentEndDate) setInstallmentEndDate(editingBill.installmentEndDate);
+            if (editingBill.installmentRecurrence) setInstallmentRecurrence(editingBill.installmentRecurrence);
         }
-    }, [pTitle, pAmount, pDueDate, pCategory, pIsPaid, pIsCleared, pFrequency, pDueDays, pRecurrenceDay, isEdit, params.totalInstallmentAmount, params.installmentStartDate, params.installmentEndDate, params.installmentRecurrence]);
+    }, [editingBill]);
 
     const onDateChange = (event: any, selectedDate?: Date) => {
         if (Platform.OS === 'android') {
@@ -470,9 +430,9 @@ export default function AddBillScreen() {
 
                                     {/* Remaining Balance */}
                                     {installmentTotalAmount && amount && (
-                                        <View style={styles.infoBox}>
-                                            <Text variant="labelLarge" style={{ color: theme.colors.secondary }}>Remaining Balance</Text>
-                                            <Text variant="headlineSmall" style={{ color: theme.colors.primary, fontWeight: 'bold' }}>
+                                        <View style={[styles.infoBox, { backgroundColor: theme.colors.surfaceVariant, borderColor: theme.colors.outlineVariant }]}>
+                                            <Text variant="labelLarge" style={{ color: theme.dark ? '#FFFFFF' : theme.colors.onSurfaceVariant }}>Remaining Balance</Text>
+                                            <Text variant="headlineSmall" style={{ color: theme.dark ? '#FFFFFF' : theme.colors.primary, fontWeight: 'bold' }}>
                                                 {currencySymbol}{((parseFloat(installmentTotalAmount) || 0) - ((parseFloat(amount) || 0) * (parseInt(paidInstallments) || 0))).toFixed(2)}
                                             </Text>
                                         </View>
@@ -945,13 +905,11 @@ const styles = StyleSheet.create({
     },
     infoBox: {
         padding: 16,
-        backgroundColor: 'rgba(0, 0, 0, 0.03)',
         borderRadius: 12,
         alignItems: 'center',
         marginTop: 8,
         marginBottom: 16,
         borderWidth: 1,
         borderStyle: 'dashed',
-        borderColor: 'rgba(0, 0, 0, 0.1)',
     }
 });
