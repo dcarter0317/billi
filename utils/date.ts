@@ -117,6 +117,26 @@ export const getDisplayDate = (bill: Bill, filterPeriod: string, selectedMonth: 
     return bill.dueDate;
 };
 
+export const getBillAlertStatus = (dueDateStr: string, bufferDays: number): 'overdue' | 'upcoming' | 'none' => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const dueDate = parseDate(dueDateStr);
+    dueDate.setHours(0, 0, 0, 0);
+
+    if (dueDate < today) {
+        return 'overdue';
+    }
+
+    const diffTime = dueDate.getTime() - today.getTime();
+    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+
+    if (diffDays <= bufferDays) {
+        return 'upcoming';
+    }
+
+    return 'none';
+};
+
 export const getBillStatusColor = (bill: Bill, theme: any) => {
     if (bill.isPaid) {
         return theme.dark ? theme.colors.success : '#1B5E20'; // Darker Green in light mode

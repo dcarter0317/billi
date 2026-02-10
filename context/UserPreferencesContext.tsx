@@ -10,6 +10,7 @@ interface UserPreferences {
     currency: string;
     payPeriodStart: number; // Stored as timestamp
     payPeriodOccurrence: 'weekly' | 'bi-weekly' | 'monthly';
+    upcomingReminderDays: number;
 }
 
 interface UserPreferencesContextType {
@@ -21,6 +22,7 @@ interface UserPreferencesContextType {
     setCurrency: (currency: string) => void;
     setPayPeriodStart: (date: Date) => void;
     setPayPeriodOccurrence: (occurrence: 'weekly' | 'bi-weekly' | 'monthly') => void;
+    setUpcomingReminderDays: (days: number) => void;
     authenticate: () => Promise<boolean>;
 }
 
@@ -39,6 +41,7 @@ export function UserPreferencesProvider({ children }: { children: ReactNode }) {
         currency: 'USD',
         payPeriodStart: new Date(2026, 0, 26).getTime(), // Default to Jan 26, 2026
         payPeriodOccurrence: 'bi-weekly',
+        upcomingReminderDays: 2,
     });
 
     // Derive isDarkMode based on themeMode and system preference
@@ -150,6 +153,10 @@ export function UserPreferencesProvider({ children }: { children: ReactNode }) {
         savePreferences({ ...preferences, payPeriodOccurrence: occurrence });
     };
 
+    const setUpcomingReminderDays = (days: number) => {
+        savePreferences({ ...preferences, upcomingReminderDays: days });
+    };
+
     return (
         <UserPreferencesContext.Provider value={{
             preferences: { ...preferences, isDarkMode },
@@ -160,6 +167,7 @@ export function UserPreferencesProvider({ children }: { children: ReactNode }) {
             setCurrency,
             setPayPeriodStart,
             setPayPeriodOccurrence,
+            setUpcomingReminderDays,
             authenticate
         }}>
             {children}

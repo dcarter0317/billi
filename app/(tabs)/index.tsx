@@ -6,7 +6,7 @@ import { useRouter } from 'expo-router';
 import { useUser } from '../../context/UserContext';
 import { useBills, Bill } from '../../context/BillContext';
 import { usePreferences } from '../../context/UserPreferencesContext';
-import { MONTHS, parseDate, getPayPeriodInterval, getBillStatusColor, getDisplayDate } from '../../utils/date';
+import { MONTHS, parseDate, getPayPeriodInterval, getBillStatusColor, getDisplayDate, getBillAlertStatus } from '../../utils/date';
 
 const CATEGORIES = [
     'Housing',
@@ -396,7 +396,35 @@ export default function HomeScreen() {
                     upcomingBills.length > 0 ? upcomingBills.map((bill: Bill) => (
                         <Card key={bill.id} style={styles.billCard}>
                             <Card.Title
-                                title={bill.title}
+                                title={
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                                        <Text variant="titleMedium" style={{ fontWeight: 'bold' }}>{bill.title}</Text>
+                                        {(() => {
+                                            const alertStatus = getBillAlertStatus(bill.dueDate, preferences.upcomingReminderDays);
+                                            if (alertStatus === 'none' || bill.isPaid || bill.isCleared) return null;
+
+                                            const today = new Date();
+                                            today.setHours(0, 0, 0, 0);
+                                            const dueDate = parseDate(bill.dueDate);
+                                            dueDate.setHours(0, 0, 0, 0);
+                                            const diffDays = Math.floor((dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+
+                                            return (
+                                                <View style={[
+                                                    styles.alertBadge,
+                                                    { backgroundColor: alertStatus === 'overdue' ? 'rgba(211, 47, 47, 0.1)' : 'rgba(245, 124, 0, 0.1)' }
+                                                ]}>
+                                                    <Text variant="labelSmall" style={[
+                                                        styles.alertText,
+                                                        { color: alertStatus === 'overdue' ? '#D32F2F' : '#F57C00' }
+                                                    ]}>
+                                                        {alertStatus === 'overdue' ? 'OVERDUE' : `DUE IN ${diffDays} ${diffDays === 1 ? 'DAY' : 'DAYS'}`}
+                                                    </Text>
+                                                </View>
+                                            );
+                                        })()}
+                                    </View>
+                                }
                                 subtitle={
                                     <View>
                                         <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
@@ -552,6 +580,16 @@ const styles = StyleSheet.create({
         textTransform: 'uppercase',
         letterSpacing: 0.5,
         fontWeight: 'bold',
+    },
+    alertBadge: {
+        paddingHorizontal: 8,
+        paddingVertical: 2,
+        borderRadius: 4,
+    },
+    alertText: {
+        fontSize: 10,
+        fontWeight: 'bold',
+        textTransform: 'uppercase',
     },
     emptyContainer: {
         padding: 24,

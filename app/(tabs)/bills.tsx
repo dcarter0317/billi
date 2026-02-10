@@ -11,7 +11,7 @@ import DraggableFlatList, {
 
 import { useBills, Bill } from '../../context/BillContext';
 import { usePreferences } from '../../context/UserPreferencesContext';
-import { MONTHS, parseDate, getPayPeriodInterval, getBillStatusColor, getDisplayDate } from '../../utils/date';
+import { MONTHS, parseDate, getPayPeriodInterval, getBillStatusColor, getDisplayDate, getBillAlertStatus } from '../../utils/date';
 
 
 
@@ -131,7 +131,33 @@ export default function BillsScreen() {
                 ]}>
                     <Card.Content style={styles.cardContent}>
                         <View style={styles.cardLeft}>
-                            <Text variant="titleMedium" style={{ fontWeight: 'bold' }}>{item.title}</Text>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                                <Text variant="titleMedium" style={{ fontWeight: 'bold' }}>{item.title}</Text>
+                                {(() => {
+                                    const alertStatus = getBillAlertStatus(item.dueDate, preferences.upcomingReminderDays);
+                                    if (alertStatus === 'none' || item.isPaid || item.isCleared) return null;
+
+                                    const today = new Date();
+                                    today.setHours(0, 0, 0, 0);
+                                    const dueDate = parseDate(item.dueDate);
+                                    dueDate.setHours(0, 0, 0, 0);
+                                    const diffDays = Math.floor((dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+
+                                    return (
+                                        <View style={[
+                                            styles.alertBadge,
+                                            { backgroundColor: alertStatus === 'overdue' ? 'rgba(211, 47, 47, 0.1)' : 'rgba(245, 124, 0, 0.1)' }
+                                        ]}>
+                                            <Text variant="labelSmall" style={[
+                                                styles.alertText,
+                                                { color: alertStatus === 'overdue' ? '#D32F2F' : '#F57C00' }
+                                            ]}>
+                                                {alertStatus === 'overdue' ? 'OVERDUE' : `DUE IN ${diffDays} ${diffDays === 1 ? 'DAY' : 'DAYS'}`}
+                                            </Text>
+                                        </View>
+                                    );
+                                })()}
+                            </View>
                             <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
                                 Due {getDisplayDate(item, filterPeriod, selectedMonth)}
                                 {item.occurrence === 'Installments' && item.paymentHistory && item.paymentHistory.length > 0 && (
@@ -503,6 +529,16 @@ const styles = StyleSheet.create({
         borderRadius: 4,
         alignSelf: 'flex-start',
         marginBottom: 8,
+    },
+    alertBadge: {
+        paddingHorizontal: 8,
+        paddingVertical: 2,
+        borderRadius: 4,
+    },
+    alertText: {
+        fontSize: 10,
+        fontWeight: 'bold',
+        textTransform: 'uppercase',
     },
 
     categoryText: {

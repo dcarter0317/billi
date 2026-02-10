@@ -28,11 +28,13 @@ export default function SettingsScreen() {
         setThemeMode,
         toggleNotifications,
         toggleBiometrics,
-        setCurrency
+        setCurrency,
+        setUpcomingReminderDays
     } = usePreferences();
     const { user } = useUser();
     const [currencyMenuVisible, setCurrencyMenuVisible] = React.useState(false);
     const [themeMenuVisible, setThemeMenuVisible] = React.useState(false);
+    const [reminderMenuVisible, setReminderMenuVisible] = React.useState(false);
 
     const onToggleNotifications = (value: boolean) => {
         toggleNotifications();
@@ -164,10 +166,35 @@ export default function SettingsScreen() {
                     <List.Subheader style={styles.subheader}>Preferences</List.Subheader>
                     <List.Item
                         title="Push Notifications"
-                        description="Remind me 1 day before due"
+                        description="Receive alerts for upcoming bills"
                         left={props => <View style={styles.iconContainer}><Bell size={20} color={theme.colors.primary} /></View>}
                         right={() => <Switch value={preferences.notificationsEnabled} onValueChange={onToggleNotifications} />}
                     />
+                    <Menu
+                        visible={reminderMenuVisible}
+                        onDismiss={() => setReminderMenuVisible(false)}
+                        anchor={
+                            <List.Item
+                                title="Set Warning Alert"
+                                description={`${preferences.upcomingReminderDays} days before due`}
+                                left={props => <View style={styles.iconContainer}><Bell size={20} color={theme.colors.primary} /></View>}
+                                onPress={() => setReminderMenuVisible(true)}
+                                right={() => <ChevronRight size={20} color={theme.colors.onSurfaceVariant} style={{ marginTop: 12 }} />}
+                            />
+                        }
+                    >
+                        {[1, 2, 3, 5, 7].map((days) => (
+                            <Menu.Item
+                                key={days}
+                                onPress={() => {
+                                    setUpcomingReminderDays(days);
+                                    setReminderMenuVisible(false);
+                                }}
+                                title={`${days} days before`}
+                                leadingIcon={preferences.upcomingReminderDays === days ? "check" : undefined}
+                            />
+                        ))}
+                    </Menu>
                     <List.Item
                         title="Biometric Unlock"
                         description="Require FaceID / TouchID"
