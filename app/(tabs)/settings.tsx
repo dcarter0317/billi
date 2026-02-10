@@ -15,7 +15,9 @@ import {
     DollarSign,
     Info,
     Trash2,
-    Lock
+    Lock,
+    Sun,
+    Monitor
 } from 'lucide-react-native';
 
 export default function SettingsScreen() {
@@ -23,13 +25,14 @@ export default function SettingsScreen() {
     const router = useRouter();
     const {
         preferences,
-        toggleDarkMode,
+        setThemeMode,
         toggleNotifications,
         toggleBiometrics,
         setCurrency
     } = usePreferences();
     const { user } = useUser();
     const [currencyMenuVisible, setCurrencyMenuVisible] = React.useState(false);
+    const [themeMenuVisible, setThemeMenuVisible] = React.useState(false);
 
     const onToggleNotifications = (value: boolean) => {
         toggleNotifications();
@@ -92,11 +95,41 @@ export default function SettingsScreen() {
                 {/* Appearance Section */}
                 <List.Section>
                     <List.Subheader style={styles.subheader}>Appearance</List.Subheader>
-                    <List.Item
-                        title="Dark Mode"
-                        left={props => <View style={styles.iconContainer}><Moon size={20} color={theme.colors.primary} /></View>}
-                        right={() => <Switch value={preferences.isDarkMode} onValueChange={toggleDarkMode} />}
-                    />
+                    <Menu
+                        visible={themeMenuVisible}
+                        onDismiss={() => setThemeMenuVisible(false)}
+                        anchor={
+                            <List.Item
+                                title="App Theme"
+                                description={preferences.themeMode.charAt(0).toUpperCase() + preferences.themeMode.slice(1)}
+                                left={props => (
+                                    <View style={styles.iconContainer}>
+                                        {preferences.themeMode === 'dark' ? (
+                                            <Moon size={20} color={theme.colors.primary} />
+                                        ) : preferences.themeMode === 'light' ? (
+                                            <Sun size={20} color={theme.colors.primary} />
+                                        ) : (
+                                            <Monitor size={20} color={theme.colors.primary} />
+                                        )}
+                                    </View>
+                                )}
+                                onPress={() => setThemeMenuVisible(true)}
+                                right={() => <ChevronRight size={20} color={theme.colors.onSurfaceVariant} style={{ marginTop: 12 }} />}
+                            />
+                        }
+                    >
+                        {(['system', 'light', 'dark'] as const).map((mode) => (
+                            <Menu.Item
+                                key={mode}
+                                onPress={() => {
+                                    setThemeMode(mode);
+                                    setThemeMenuVisible(false);
+                                }}
+                                title={mode.charAt(0).toUpperCase() + mode.slice(1)}
+                                leadingIcon={preferences.themeMode === mode ? "check" : undefined}
+                            />
+                        ))}
+                    </Menu>
                     <Menu
                         visible={currencyMenuVisible}
                         onDismiss={() => setCurrencyMenuVisible(false)}

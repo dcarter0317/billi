@@ -1,6 +1,6 @@
 import { Tabs } from 'expo-router';
 import { useTheme } from 'react-native-paper';
-import { Home, FileText, PieChart, Settings } from 'lucide-react-native';
+import { Home, FileText, History as HistoryIcon, PieChart, Settings } from 'lucide-react-native';
 
 export default function TabLayout() {
     const theme = useTheme();
@@ -29,6 +29,13 @@ export default function TabLayout() {
                 options={{
                     title: 'Bills',
                     tabBarIcon: ({ color, size }) => <FileText color={color} size={size} />,
+                }}
+            />
+            <Tabs.Screen
+                name="history"
+                options={{
+                    title: 'History',
+                    tabBarIcon: ({ color, size }) => <HistoryIcon color={color} size={size} />,
                 }}
             />
             <Tabs.Screen

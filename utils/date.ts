@@ -92,6 +92,31 @@ export const getPayPeriodInterval = (
     return { start, end };
 };
 
+
+export const getDisplayDate = (bill: Bill, filterPeriod: string, selectedMonth: number): string => {
+    if (!bill.isRecurring) return bill.dueDate;
+
+    const billDate = parseDate(bill.dueDate);
+    const today = new Date();
+    const currentYear = today.getFullYear();
+
+    if (filterPeriod === 'monthly' && selectedMonth !== -1) {
+        // Project to the selected month if it's in the future
+        if (selectedMonth > billDate.getMonth() || billDate.getFullYear() < currentYear) {
+            const projectedDate = new Date(currentYear, selectedMonth, billDate.getDate());
+            // Handle month overflow (e.g., Feb 30)
+            if (projectedDate.getMonth() !== selectedMonth) {
+                projectedDate.setDate(0);
+            }
+            return formatDate(projectedDate);
+        }
+    }
+
+    // For other periods (Weekly, Bi-weekly), we could add more complex projection logic here
+    // For now, returning the base due date if not a monthly projection
+    return bill.dueDate;
+};
+
 export const getBillStatusColor = (bill: Bill, theme: any) => {
     if (bill.isPaid) {
         return theme.dark ? theme.colors.success : '#1B5E20'; // Darker Green in light mode

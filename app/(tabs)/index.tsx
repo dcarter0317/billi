@@ -1,12 +1,12 @@
 import React, { useState, useMemo } from 'react';
-import { View, ScrollView, StyleSheet, TouchableOpacity } from 'react-native';
-import { Text, Card, useTheme, Button, Avatar, Menu, Divider, Searchbar } from 'react-native-paper';
+import { View, ScrollView, StyleSheet, TouchableOpacity, Alert } from 'react-native';
+import { Text, Card, useTheme, Button, Avatar, Menu, Divider, Searchbar, IconButton } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useUser } from '../../context/UserContext';
 import { useBills, Bill } from '../../context/BillContext';
 import { usePreferences } from '../../context/UserPreferencesContext';
-import { MONTHS, parseDate, getPayPeriodInterval, getBillStatusColor } from '../../utils/date';
+import { MONTHS, parseDate, getPayPeriodInterval, getBillStatusColor, getDisplayDate } from '../../utils/date';
 
 const CATEGORIES = [
     'Housing',
@@ -74,14 +74,14 @@ export default function HomeScreen() {
     const currencySymbol = preferences.currency === 'EUR' ? '€' : '$';
 
     const intervals = useMemo(() => ({
-        last: getPayPeriodInterval(preferences.payPeriodStart, preferences.payPeriodFrequency, -1),
-        this: getPayPeriodInterval(preferences.payPeriodStart, preferences.payPeriodFrequency, 0),
-        next: getPayPeriodInterval(preferences.payPeriodStart, preferences.payPeriodFrequency, 1),
-    }), [preferences.payPeriodStart, preferences.payPeriodFrequency]);
+        last: getPayPeriodInterval(preferences.payPeriodStart, preferences.payPeriodOccurrence, -1),
+        this: getPayPeriodInterval(preferences.payPeriodStart, preferences.payPeriodOccurrence, 0),
+        next: getPayPeriodInterval(preferences.payPeriodStart, preferences.payPeriodOccurrence, 1),
+    }), [preferences.payPeriodStart, preferences.payPeriodOccurrence]);
 
     // Unified logic: First filter bills by period AND search AND category, then derive stats
-    const { upcomingBills, totalDue, paidTotal } = useMemo(() => {
-        const pertinentBills = bills.filter(bill => {
+    const { upcomingBills, settledBills, totalDue, paidTotal } = useMemo(() => {
+        const pertinentBills = bills.filter((bill: Bill) => {
             // Apply Search Filter first
             if (searchQuery.length > 0 && !bill.title.toLowerCase().includes(searchQuery.toLowerCase())) {
                 return false;
@@ -89,32 +89,57 @@ export default function HomeScreen() {
 
             // Apply Category Filter
             if (selectedCategory !== 'All' && bill.category !== selectedCategory) {
-                // Note: If a custom category is used that isn't in the list, it won't match 'Custom' string unless the bill.category is literally 'Custom'.
-                // Users usually replace 'Custom' with their own text. 
-                // So selecting 'Custom' in dropdown effectively finds bills literally named 'Custom', which might be rare if they input a name.
-                // But selecting standard categories works fine.
                 return false;
             }
 
             if (filterPeriod === 'all') return true;
 
             const billDate = parseDate(bill.dueDate);
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            const currentYear = today.getFullYear();
+
             if (filterPeriod === 'monthly') {
                 if (selectedMonth === -1) return true;
-                return billDate.getMonth() === selectedMonth && billDate.getFullYear() === new Date().getFullYear();
+
+                // Show if it matches exactly
+                if (billDate.getMonth() === selectedMonth && billDate.getFullYear() === currentYear) return true;
+
+                // For recurring bills, project into future months
+                if (bill.isRecurring) {
+                    if (billDate.getFullYear() < currentYear) return true;
+                    if (billDate.getFullYear() === currentYear && selectedMonth > billDate.getMonth()) return true;
+                    if (billDate.getFullYear() > currentYear) return false; // Starts in future
+                }
+                return false;
             }
 
             const interval = intervals[filterPeriod as keyof typeof intervals];
-            return billDate >= interval.start && billDate <= interval.end;
+            if (!interval) return false;
+
+            // Show if it exactly falls within the interval
+            if (billDate >= interval.start && billDate <= interval.end) return true;
+
+            // For recurring bills, show if the interval is in the future
+            if (bill.isRecurring && interval.start > billDate) {
+                return true;
+            }
+
+            return false;
         });
 
         // upcomingBills are unpaid bills in this period
         const upcoming = pertinentBills
-            .filter(bill => !bill.isPaid)
-            .sort((a, b) => parseDate(a.dueDate).getTime() - parseDate(b.dueDate).getTime());
+            .filter((bill: Bill) => !bill.isPaid)
+            .sort((a: Bill, b: Bill) => parseDate(a.dueDate).getTime() - parseDate(b.dueDate).getTime());
+
+        // settledBills are paid/cleared bills in this period
+        const settled = pertinentBills
+            .filter((bill: Bill) => bill.isPaid)
+            .sort((a: Bill, b: Bill) => parseDate(b.dueDate).getTime() - parseDate(a.dueDate).getTime()); // Newest first
 
         // Calculate totals based on the filtered set
-        const due = upcoming.reduce((sum, bill) => sum + (parseFloat(bill.amount) || 0), 0);
+        const due = upcoming.reduce((sum: number, bill: Bill) => sum + (parseFloat(bill.amount) || 0), 0);
 
         // For 'all' view, we might want "Paid This Month" as context, 
         // but for specific periods, we want "Paid In Period".
@@ -122,17 +147,15 @@ export default function HomeScreen() {
 
         // If searching or filtering by category, show exact matches for paid total too
         if (searchQuery.length > 0 || selectedCategory !== 'All') {
-            paid = pertinentBills
-                .filter(b => b.isPaid)
-                .reduce((sum, bill) => sum + (parseFloat(bill.amount) || 0), 0);
+            paid = settled.reduce((sum: number, bill: Bill) => sum + (parseFloat(bill.amount) || 0), 0);
         } else if (filterPeriod === 'all') {
             // For All view w/o search/category, stick to "Paid This Month" logic for relevance
             const now = new Date();
             const currentMonth = now.getMonth();
             const currentYear = now.getFullYear();
             paid = bills
-                .filter(b => b.isPaid)
-                .reduce((sum, bill) => {
+                .filter((b: Bill) => b.isPaid)
+                .reduce((sum: number, bill: Bill) => {
                     const billDate = parseDate(bill.dueDate);
                     if (billDate.getMonth() === currentMonth && billDate.getFullYear() === currentYear) {
                         return sum + (parseFloat(bill.amount) || 0);
@@ -141,12 +164,10 @@ export default function HomeScreen() {
                 }, 0);
         } else {
             // For specific periods, sum the paid bills IN that period
-            paid = pertinentBills
-                .filter(b => b.isPaid)
-                .reduce((sum, bill) => sum + (parseFloat(bill.amount) || 0), 0);
+            paid = settled.reduce((sum: number, bill: Bill) => sum + (parseFloat(bill.amount) || 0), 0);
         }
 
-        return { upcomingBills: upcoming, totalDue: due, paidTotal: paid };
+        return { upcomingBills: upcoming, settledBills: settled, totalDue: due, paidTotal: paid };
     }, [filterPeriod, selectedMonth, intervals, bills, searchQuery, selectedCategory]);
 
     return (
@@ -165,9 +186,17 @@ export default function HomeScreen() {
                         </Text>
                         <Text variant="headlineMedium" style={{ fontWeight: 'bold' }}>{user?.name?.split(' ')[0] || 'User'}</Text>
                     </View>
-                    <TouchableOpacity onPress={() => router.push('/profile')}>
-                        <Avatar.Image size={48} source={{ uri: user?.avatar || 'https://i.pravatar.cc/150?img=12' }} />
-                    </TouchableOpacity>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                        <IconButton
+                            icon="plus-circle"
+                            size={32}
+                            iconColor={theme.colors.primary}
+                            onPress={() => router.push('/add-bill')}
+                        />
+                        <TouchableOpacity onPress={() => router.push('/profile')}>
+                            <Avatar.Image size={48} source={{ uri: user?.avatar || 'https://i.pravatar.cc/150?img=12' }} />
+                        </TouchableOpacity>
+                    </View>
                 </View>
 
                 {/* Total Balance Card */}
@@ -282,7 +311,7 @@ export default function HomeScreen() {
                                             leadingIcon={selectedMonth === -1 ? 'check' : undefined}
                                         />
                                         <Divider />
-                                        {MONTHS.map((month, index) => (
+                                        {MONTHS.map((month: string, index: number) => (
                                             <Menu.Item
                                                 key={month}
                                                 onPress={() => {
@@ -317,7 +346,7 @@ export default function HomeScreen() {
                                     >
                                         {(() => {
                                             if (period === 'all') return 'All Bills';
-                                            const isMonthly = preferences.payPeriodFrequency === 'monthly';
+                                            const isMonthly = preferences.payPeriodOccurrence === 'monthly';
                                             switch (period) {
                                                 case 'last': return isMonthly ? 'Last Month' : 'Last Pay Period';
                                                 case 'this': return isMonthly ? 'This Month' : 'Current Pay Period';
@@ -364,14 +393,21 @@ export default function HomeScreen() {
                 }
 
                 {
-                    upcomingBills.length > 0 ? upcomingBills.map(bill => (
+                    upcomingBills.length > 0 ? upcomingBills.map((bill: Bill) => (
                         <Card key={bill.id} style={styles.billCard}>
                             <Card.Title
                                 title={bill.title}
                                 subtitle={
                                     <View>
-                                        <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>Due {bill.dueDate}</Text>
-                                        <View style={styles.categoryBadge}>
+                                        <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
+                                            Due {parseDate(getDisplayDate(bill, filterPeriod, selectedMonth)).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                                            {bill.occurrence === 'Installments' && bill.paymentHistory && bill.paymentHistory.length > 0 && (
+                                                <Text style={{ color: (theme.colors as any).success || theme.colors.primary }}>
+                                                    {' • '}Last paid: {bill.paymentHistory[bill.paymentHistory.length - 1].date}
+                                                </Text>
+                                            )}
+                                        </Text>
+                                        <View style={[styles.categoryBadge, { flexDirection: 'row', alignItems: 'center', gap: 6 }]}>
                                             <Text
                                                 variant="labelSmall"
                                                 style={[
@@ -381,6 +417,14 @@ export default function HomeScreen() {
                                             >
                                                 {bill.category}
                                             </Text>
+                                            {bill.occurrence === 'Installments' && bill.totalInstallments && (
+                                                <>
+                                                    <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: theme.colors.onSurfaceVariant, opacity: 0.3 }} />
+                                                    <Text variant="labelSmall" style={{ color: theme.colors.primary, fontWeight: 'bold' }}>
+                                                        {bill.paidInstallments || 0} of {bill.totalInstallments} payments made
+                                                    </Text>
+                                                </>
+                                            )}
                                         </View>
                                     </View>
                                 }
@@ -401,9 +445,18 @@ export default function HomeScreen() {
                         </Card>
                     )) : (
                         <View style={styles.emptyContainer}>
-                            <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant }}>
-                                {searchQuery.length > 0 || selectedCategory !== 'All' ? 'No bills match your filters.' : 'No bills found for the selected period.'}
+                            <IconButton icon="calendar-check" size={48} iconColor={theme.colors.onSurfaceVariant} style={{ opacity: 0.5 }} />
+                            <Text variant="bodyLarge" style={{ color: theme.colors.onSurfaceVariant, textAlign: 'center', marginBottom: 16 }}>
+                                {searchQuery.length > 0 || selectedCategory !== 'All' ? 'No bills match your filters.' : 'No upcoming bills found!'}
                             </Text>
+                            <Button
+                                mode="contained"
+                                onPress={() => router.push('/add-bill')}
+                                icon="plus"
+                                style={{ borderRadius: 12 }}
+                            >
+                                Add New Bill
+                            </Button>
                         </View>
                     )
                 }
@@ -476,7 +529,15 @@ const styles = StyleSheet.create({
     },
     billCard: {
         marginBottom: 12,
+        paddingTop: 8,
         paddingBottom: 5,
+    },
+    settledCard: {
+        opacity: 0.8,
+        backgroundColor: 'transparent',
+        borderWidth: 1,
+        borderColor: 'rgba(0,0,0,0.05)',
+        elevation: 0,
     },
     categoryBadge: {
         marginTop: 4,

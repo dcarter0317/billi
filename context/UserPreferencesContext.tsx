@@ -4,23 +4,23 @@ import { getItemAsync, setItemAsync } from 'expo-secure-store';
 import * as LocalAuthentication from 'expo-local-authentication';
 
 interface UserPreferences {
-    isDarkMode: boolean;
+    themeMode: 'system' | 'light' | 'dark';
     notificationsEnabled: boolean;
     biometricsEnabled: boolean;
     currency: string;
     payPeriodStart: number; // Stored as timestamp
-    payPeriodFrequency: 'weekly' | 'bi-weekly' | 'monthly';
+    payPeriodOccurrence: 'weekly' | 'bi-weekly' | 'monthly';
 }
 
 interface UserPreferencesContextType {
-    preferences: UserPreferences;
+    preferences: UserPreferences & { isDarkMode: boolean };
     isAuthenticated: boolean;
-    toggleDarkMode: () => void;
+    setThemeMode: (mode: 'system' | 'light' | 'dark') => void;
     toggleNotifications: () => void;
     toggleBiometrics: () => Promise<boolean>;
     setCurrency: (currency: string) => void;
     setPayPeriodStart: (date: Date) => void;
-    setPayPeriodFrequency: (frequency: 'weekly' | 'bi-weekly' | 'monthly') => void;
+    setPayPeriodOccurrence: (occurrence: 'weekly' | 'bi-weekly' | 'monthly') => void;
     authenticate: () => Promise<boolean>;
 }
 
@@ -33,13 +33,18 @@ export function UserPreferencesProvider({ children }: { children: ReactNode }) {
     const systemColorScheme = colorScheme || 'light';
 
     const [preferences, setPreferences] = useState<UserPreferences>({
-        isDarkMode: systemColorScheme === 'dark',
+        themeMode: 'system',
         notificationsEnabled: true,
         biometricsEnabled: false,
         currency: 'USD',
         payPeriodStart: new Date(2026, 0, 26).getTime(), // Default to Jan 26, 2026
-        payPeriodFrequency: 'bi-weekly',
+        payPeriodOccurrence: 'bi-weekly',
     });
+
+    // Derive isDarkMode based on themeMode and system preference
+    const isDarkMode = preferences.themeMode === 'system'
+        ? systemColorScheme === 'dark'
+        : preferences.themeMode === 'dark';
 
     const [isAuthenticated, setIsAuthenticated] = useState(false);
 
@@ -106,8 +111,8 @@ export function UserPreferencesProvider({ children }: { children: ReactNode }) {
         }
     };
 
-    const toggleDarkMode = () => {
-        savePreferences({ ...preferences, isDarkMode: !preferences.isDarkMode });
+    const setThemeMode = (themeMode: 'system' | 'light' | 'dark') => {
+        savePreferences({ ...preferences, themeMode });
     };
 
     const toggleNotifications = () => {
@@ -141,20 +146,20 @@ export function UserPreferencesProvider({ children }: { children: ReactNode }) {
         savePreferences({ ...preferences, payPeriodStart: date.getTime() });
     };
 
-    const setPayPeriodFrequency = (frequency: 'weekly' | 'bi-weekly' | 'monthly') => {
-        savePreferences({ ...preferences, payPeriodFrequency: frequency });
+    const setPayPeriodOccurrence = (occurrence: 'weekly' | 'bi-weekly' | 'monthly') => {
+        savePreferences({ ...preferences, payPeriodOccurrence: occurrence });
     };
 
     return (
         <UserPreferencesContext.Provider value={{
-            preferences,
+            preferences: { ...preferences, isDarkMode },
             isAuthenticated,
-            toggleDarkMode,
+            setThemeMode,
             toggleNotifications,
             toggleBiometrics,
             setCurrency,
             setPayPeriodStart,
-            setPayPeriodFrequency,
+            setPayPeriodOccurrence,
             authenticate
         }}>
             {children}

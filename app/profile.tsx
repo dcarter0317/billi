@@ -7,15 +7,17 @@ import * as ImagePicker from 'expo-image-picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useUser } from '../context/UserContext';
 import { usePreferences } from '../context/UserPreferencesContext';
+import { useBills } from '../context/BillContext';
 import { Camera } from 'lucide-react-native';
 
 export default function ProfileScreen() {
     const theme = useTheme();
     const router = useRouter();
     const { user, updateUser } = useUser();
+    const { resetToDefaults } = useBills();
     const {
         preferences,
-        toggleDarkMode,
+        setThemeMode,
         toggleNotifications,
         toggleBiometrics,
         setCurrency,
@@ -74,6 +76,24 @@ export default function ProfileScreen() {
         if (!success && !preferences.biometricsEnabled) {
             Alert.alert("Error", "Failed to enable biometrics. Please try again.");
         }
+    };
+
+    const handleRestoreData = () => {
+        Alert.alert(
+            "Restore Demo Data",
+            "This will overwrite all current bills with the initial demo data. Are you sure?",
+            [
+                { text: "Cancel", style: "cancel" },
+                {
+                    text: "Restore",
+                    style: "destructive",
+                    onPress: async () => {
+                        await resetToDefaults();
+                        Alert.alert("Success", "Demo data restored.");
+                    }
+                }
+            ]
+        );
     };
 
     const currencies = ['USD', 'EUR', 'GBP', 'CAD', 'AUD', 'JPY'];
@@ -198,7 +218,7 @@ export default function ProfileScreen() {
 
                     <View style={[styles.settingItem, { borderBottomColor: theme.colors.outlineVariant }]}>
                         <Text variant="bodyLarge">Dark Mode</Text>
-                        <Switch value={preferences.isDarkMode} onValueChange={toggleDarkMode} color={theme.colors.primary} />
+                        <Switch value={preferences.isDarkMode} onValueChange={(val) => setThemeMode(val ? 'dark' : 'light')} color={theme.colors.primary} />
                     </View>
 
                     <View style={[styles.settingItem, { borderBottomColor: theme.colors.outlineVariant }]}>
@@ -242,6 +262,17 @@ export default function ProfileScreen() {
                             />
                         ))}
                     </Menu>
+
+                    <View style={styles.divider} />
+
+                    <Button
+                        mode="outlined"
+                        onPress={handleRestoreData}
+                        textColor={theme.colors.error}
+                        style={{ borderColor: theme.colors.error, marginBottom: 40 }}
+                    >
+                        Restore Demo Data
+                    </Button>
 
                 </ScrollView>
             </SafeAreaView>

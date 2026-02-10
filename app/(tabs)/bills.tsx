@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { View, StyleSheet, TouchableOpacity, FlatList, Switch, KeyboardAvoidingView, Platform, Alert, ScrollView } from 'react-native';
-import { Text, Card, useTheme, FAB, Searchbar, IconButton, Menu, Divider, Checkbox, Button } from 'react-native-paper';
+import { Text, Card, useTheme, FAB, Searchbar, IconButton, Menu, Divider, Checkbox, Button, Portal } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 
@@ -11,7 +11,7 @@ import DraggableFlatList, {
 
 import { useBills, Bill } from '../../context/BillContext';
 import { usePreferences } from '../../context/UserPreferencesContext';
-import { MONTHS, parseDate, getPayPeriodInterval, getBillStatusColor } from '../../utils/date';
+import { MONTHS, parseDate, getPayPeriodInterval, getBillStatusColor, getDisplayDate } from '../../utils/date';
 
 
 
@@ -47,10 +47,10 @@ export default function BillsScreen() {
     };
 
     const intervals = useMemo(() => ({
-        last: getPayPeriodInterval(preferences.payPeriodStart, preferences.payPeriodFrequency, -1),
-        this: getPayPeriodInterval(preferences.payPeriodStart, preferences.payPeriodFrequency, 0),
-        next: getPayPeriodInterval(preferences.payPeriodStart, preferences.payPeriodFrequency, 1),
-    }), [preferences.payPeriodStart, preferences.payPeriodFrequency]);
+        last: getPayPeriodInterval(preferences.payPeriodStart, preferences.payPeriodOccurrence, -1),
+        this: getPayPeriodInterval(preferences.payPeriodStart, preferences.payPeriodOccurrence, 0),
+        next: getPayPeriodInterval(preferences.payPeriodStart, preferences.payPeriodOccurrence, 1),
+    }), [preferences.payPeriodStart, preferences.payPeriodOccurrence]);
 
     const handleReset = () => {
         Alert.alert(
@@ -78,22 +78,44 @@ export default function BillsScreen() {
             if (filterPeriod === 'all') return true;
 
             const billDate = parseDate(bill.dueDate);
+            const today = new Date();
+            const currentYear = today.getFullYear();
+
             if (filterPeriod === 'monthly') {
-                if (selectedMonth === -1) return true; // Show all for year if no month selected
-                return billDate.getMonth() === selectedMonth && billDate.getFullYear() === 2026;
+                if (selectedMonth === -1) return true;
+
+                // Show if it matches exactly
+                if (billDate.getMonth() === selectedMonth && billDate.getFullYear() === currentYear) return true;
+
+                // For recurring bills, project into future months
+                if (bill.isRecurring) {
+                    if (billDate.getFullYear() < currentYear) return true;
+                    if (billDate.getFullYear() === currentYear && selectedMonth > billDate.getMonth()) return true;
+                }
+                return false;
             }
 
             const interval = intervals[filterPeriod as keyof typeof intervals];
-            return billDate >= interval.start && billDate <= interval.end;
+            if (!interval) return false;
+
+            // Show if it exactly falls within the interval
+            if (billDate >= interval.start && billDate <= interval.end) return true;
+
+            // For recurring bills, show if the interval is in the future relative to the bill's current due date
+            if (bill.isRecurring && interval.start > billDate) {
+                return true;
+            }
+
+            return false;
         });
     }, [bills, searchQuery, filterPeriod, selectedMonth, intervals]);
 
     const paidTotal = useMemo(() => {
-        return bills
+        return filteredBills
             .filter(b => b.isPaid)
             .reduce((sum, b) => sum + parseFloat(b.amount || '0'), 0)
             .toFixed(2);
-    }, [bills]);
+    }, [filteredBills]);
 
     const renderItem = ({ item, drag, isActive }: RenderItemParams<Bill>) => (
         <ScaleDecorator>
@@ -104,24 +126,43 @@ export default function BillsScreen() {
             >
                 <Card style={[
                     styles.card,
-                    isActive && { backgroundColor: theme.colors.surfaceVariant, elevation: 8 }
+                    isActive && { backgroundColor: theme.colors.surfaceVariant, elevation: 8 },
+                    (item.isPaid || item.isCleared) && styles.settledCard
                 ]}>
                     <Card.Content style={styles.cardContent}>
                         <View style={styles.cardLeft}>
                             <Text variant="titleMedium" style={{ fontWeight: 'bold' }}>{item.title}</Text>
-                            <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>Due {item.dueDate}</Text>
-                            <View style={styles.categoryBadge}>
+                            <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
+                                Due {getDisplayDate(item, filterPeriod, selectedMonth)}
+                                {item.occurrence === 'Installments' && item.paymentHistory && item.paymentHistory.length > 0 && (
+                                    <Text style={{ color: (theme.colors as any).success || theme.colors.primary }}>
+                                        {' • '}Last paid: {item.paymentHistory[item.paymentHistory.length - 1].date}
+                                    </Text>
+                                )}
+                            </Text>
+                            <View style={[styles.categoryBadge, { flexDirection: 'row', alignItems: 'center', gap: 6 }]}>
                                 <Text variant="labelSmall" style={styles.categoryText}>{item.category}</Text>
+                                {item.occurrence === 'Installments' && item.totalInstallments && (
+                                    <>
+                                        <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: theme.colors.onSurfaceVariant, opacity: 0.3 }} />
+                                        <Text variant="labelSmall" style={{ color: theme.colors.primary, fontWeight: 'bold' }}>
+                                            {item.paidInstallments || 0} of {item.totalInstallments} payments made
+                                        </Text>
+                                    </>
+                                )}
                             </View>
-                            <Button
-                                mode="contained"
-                                onPress={() => Alert.alert('Payment', `Redirecting to payment for ${item.title}...`)}
-                                style={[styles.paymentButton, { backgroundColor: theme.colors.primary }]}
-                                labelStyle={{ fontSize: 10, fontWeight: 'bold' }}
-                                compact
-                            >
-                                MAKE PAYMENT
-                            </Button>
+                            {item.isRecurring && (
+                                <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
+                                    <IconButton icon="repeat" size={14} style={{ margin: 0 }} iconColor={theme.colors.primary} />
+                                    <Text variant="labelSmall" style={{ color: theme.colors.primary, fontWeight: 'bold' }}>Recurring</Text>
+                                </View>
+                            )}
+                            {item.notes ? (
+                                <Text variant="bodySmall" numberOfLines={1} style={{ marginTop: 4, fontStyle: 'italic', opacity: 0.7 }}>
+                                    Note: {item.notes}
+                                </Text>
+                            ) : null}
+
                         </View>
                         <View style={styles.cardRight}>
                             <View style={styles.amountRow}>
@@ -129,7 +170,7 @@ export default function BillsScreen() {
                                 <IconButton
                                     icon="pencil"
                                     size={20}
-                                    iconColor={(theme.colors as any).warning}
+                                    iconColor={theme.colors.error}
                                     onPress={() => router.push({
                                         pathname: '/add-bill',
                                         params: {
@@ -139,7 +180,7 @@ export default function BillsScreen() {
                                     })}
                                     style={[
                                         styles.editButton,
-                                        { borderColor: (theme.colors as any).warning }
+                                        { borderColor: theme.colors.error }
                                     ]}
                                 />
                                 <IconButton
@@ -229,7 +270,7 @@ export default function BillsScreen() {
                                     <Card style={[styles.totalCard, { backgroundColor: theme.colors.surfaceVariant }]}>
                                         <Card.Content style={styles.totalContent}>
                                             <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant, textTransform: 'uppercase' }}>Paid Total</Text>
-                                            <Text variant="titleLarge" style={{ fontWeight: 'bold', color: (theme.colors as any).success || theme.colors.primary }}>{currencySymbol}{paidTotal}</Text>
+                                            <Text variant="titleLarge" style={{ fontWeight: 'bold', color: theme.colors.primary }}>{currencySymbol}{paidTotal}</Text>
                                         </Card.Content>
                                     </Card>
                                 </View>
@@ -305,7 +346,16 @@ export default function BillsScreen() {
                                                     { color: filterPeriod === period ? theme.colors.onPrimaryContainer : theme.colors.onSurfaceVariant }
                                                 ]}
                                             >
-                                                {period === 'last' ? 'Last Pay Period' : period === 'this' ? 'Current Pay Period' : period === 'next' ? 'Next Pay Period' : 'All Bills'}
+                                                {(() => {
+                                                    if (period === 'all') return 'All Bills';
+                                                    const isMonthly = preferences.payPeriodOccurrence === 'monthly';
+                                                    switch (period) {
+                                                        case 'last': return isMonthly ? 'Last Month' : 'Last Pay Period';
+                                                        case 'this': return isMonthly ? 'This Month' : 'Current Pay Period';
+                                                        case 'next': return isMonthly ? 'Next Month' : 'Next Pay Period';
+                                                        default: return period;
+                                                    }
+                                                })()}
                                             </Text>
                                         </TouchableOpacity>
                                     ))}
@@ -336,19 +386,36 @@ export default function BillsScreen() {
                                     Showing bills for {MONTHS[selectedMonth]} 2026
                                 </Text>
                             )}
+                            {filteredBills.length === 0 && (
+                                <View style={styles.emptyContainer}>
+                                    <IconButton icon="file-search-outline" size={48} iconColor={theme.colors.onSurfaceVariant} style={{ opacity: 0.5 }} />
+                                    <Text variant="bodyLarge" style={{ color: theme.colors.onSurfaceVariant, marginBottom: 16 }}>
+                                        No bills found for this period.
+                                    </Text>
+                                    <Button
+                                        mode="contained"
+                                        onPress={() => router.push('/add-bill')}
+                                        icon="plus"
+                                    >
+                                        Add New Bill
+                                    </Button>
+                                </View>
+                            )}
                         </View>
                     }
                     contentContainerStyle={styles.list}
                     keyboardShouldPersistTaps="handled"
                 />
 
-                <FAB
-                    icon="plus"
-                    style={[styles.fab, { backgroundColor: theme.colors.primary }]}
-                    onPress={() => router.push('/add-bill')}
-                    label="Add Bill"
-                    color={theme.dark ? theme.colors.onPrimary : '#F5F7FA'}
-                />
+                <Portal>
+                    <FAB
+                        icon="plus"
+                        style={[styles.fab, { backgroundColor: theme.colors.primary }]}
+                        onPress={() => router.push('/add-bill')}
+                        label="Add Bill"
+                        color={theme.dark ? theme.colors.onPrimary : '#F5F7FA'}
+                    />
+                </Portal>
             </KeyboardAvoidingView>
         </SafeAreaView>
     );
@@ -413,6 +480,13 @@ const styles = StyleSheet.create({
         marginBottom: 12,
         paddingBottom: 5,
     },
+    settledCard: {
+        opacity: 0.8,
+        backgroundColor: 'rgba(0,0,0,0.02)',
+        borderColor: 'rgba(0,0,0,0.05)',
+        borderWidth: 1,
+        elevation: 0,
+    },
     cardContent: {
         flexDirection: 'row',
         justifyContent: 'space-between',
@@ -430,11 +504,7 @@ const styles = StyleSheet.create({
         alignSelf: 'flex-start',
         marginBottom: 8,
     },
-    paymentButton: {
-        marginTop: 4,
-        borderRadius: 6,
-        alignSelf: 'flex-start',
-    },
+
     categoryText: {
         color: '#E65100', // Darker Orange for better contrast
         fontSize: 10,
@@ -488,7 +558,13 @@ const styles = StyleSheet.create({
     fab: {
         position: 'absolute',
         margin: 16,
-        right: 0,
-        bottom: 0,
+        right: 16,
+        bottom: Platform.OS === 'ios' ? 90 : 80, // Elevation to avoid overlap with tab bar
+        elevation: 8,
     },
+    emptyContainer: {
+        padding: 40,
+        alignItems: 'center',
+        justifyContent: 'center',
+    }
 });

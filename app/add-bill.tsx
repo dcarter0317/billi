@@ -1,7 +1,7 @@
 /// <reference types="@react-native-community/datetimepicker" />
 import React, { useState } from 'react';
-import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, TouchableOpacity, Modal, FlatList, Switch } from 'react-native';
-import { Text, TextInput, Button, useTheme, Card, Divider, IconButton, Checkbox } from 'react-native-paper';
+import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, TouchableOpacity, Modal, FlatList, Switch, Alert } from 'react-native';
+import { Text, TextInput, Button, useTheme, Card, Divider, IconButton, Checkbox, Chip } from 'react-native-paper';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -9,7 +9,7 @@ import { useBills, Bill } from '../context/BillContext';
 import { usePreferences } from '../context/UserPreferencesContext';
 import { formatDate, parseDate } from '../utils/date';
 
-const FREQUENCIES = ['Every Month', 'Every Week', 'Twice a Week', 'Twice a Month', 'Every Other Week', 'Installments'];
+const OCCURRENCES = ['Every Month', 'Every Week', 'Twice a Week', 'Twice a Month', 'Every Other Week', 'Installments'];
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 const CATEGORIES = [
@@ -42,7 +42,7 @@ export default function AddBillScreen() {
     const theme = useTheme();
     const router = useRouter();
     const params = useLocalSearchParams();
-    const { addBill, updateBill, bills } = useBills();
+    const { addBill, updateBill, bills, deletePaymentRecord } = useBills();
 
     const getOrdinalSuffix = (day: number) => {
         if (day > 3 && day < 21) return 'th';
@@ -82,9 +82,12 @@ export default function AddBillScreen() {
     const [showCategoryMenu, setShowCategoryMenu] = useState(false);
     const [isPaid, setIsPaid] = useState(false);
     const [isCleared, setIsCleared] = useState(false);
+    const [notes, setNotes] = useState('');
+    const [isRecurring, setIsRecurring] = useState(false);
+
 
     // New State
-    const [frequency, setFrequency] = useState<NonNullable<Bill['frequency']>>('Every Month');
+    const [occurrence, setOccurrence] = useState<NonNullable<Bill['occurrence']>>('Every Month');
     const [dueDays, setDueDays] = useState<number[]>([]);
 
     // Installments State
@@ -117,7 +120,7 @@ export default function AddBillScreen() {
 
             setIsPaid(editingBill.isPaid || false);
             setIsCleared(editingBill.isCleared || false);
-            setFrequency(editingBill.frequency || 'Every Month');
+            setOccurrence(editingBill.occurrence || 'Every Month');
             setDueDays(editingBill.dueDays || []);
 
             if (editingBill.totalInstallments) setTotalInstallments(editingBill.totalInstallments.toString());
@@ -126,8 +129,23 @@ export default function AddBillScreen() {
             if (editingBill.installmentStartDate) setInstallmentStartDate(parseFormattedDate(editingBill.installmentStartDate));
             if (editingBill.installmentEndDate) setInstallmentEndDate(editingBill.installmentEndDate);
             if (editingBill.installmentRecurrence) setInstallmentRecurrence(editingBill.installmentRecurrence);
+            setNotes(editingBill.notes || '');
+            setIsRecurring(editingBill.isRecurring || false);
+
         }
     }, [editingBill]);
+
+    // Auto-calculate Total Installments
+    React.useEffect(() => {
+        if (occurrence === 'Installments' && installmentTotalAmount && amount) {
+            const total = parseFloat(installmentTotalAmount);
+            const inst = parseFloat(amount);
+            if (total > 0 && inst > 0) {
+                const calculated = Math.ceil(total / inst);
+                setTotalInstallments(calculated.toString());
+            }
+        }
+    }, [installmentTotalAmount, amount, occurrence]);
 
     const onDateChange = (event: any, selectedDate?: Date) => {
         if (Platform.OS === 'android') {
@@ -189,10 +207,10 @@ export default function AddBillScreen() {
 
     // Effect to update Date when Due Days change for recurring bills
     React.useEffect(() => {
-        if (frequency !== 'Every Month' && frequency !== 'Installments' && dueDays.length > 0) {
+        if (occurrence !== 'Every Month' && occurrence !== 'Installments' && dueDays.length > 0) {
             // For Every Week, Twice a Week, etc.
             // Auto update the "Date" state which is the effective due date
-            const next = calculateNextDueDate(dueDays, frequency);
+            const next = calculateNextDueDate(dueDays, occurrence);
             setDate(next);
         }
         // For 'Every Month' / 'Installments', we usually let them pick a specific date 
@@ -203,15 +221,15 @@ export default function AddBillScreen() {
         // So for Monthly, maybe keep it enabling the calendar picker? 
         // But we have "Day of Month" picker too.
         // Let's enforce the Day Picker for all recurring to be consistent.
-        if ((frequency.includes('Month') || frequency === 'Installments') && dueDays.length > 0) {
-            const next = calculateNextDueDate(dueDays, frequency);
+        if ((occurrence.includes('Month') || occurrence === 'Installments') && dueDays.length > 0) {
+            const next = calculateNextDueDate(dueDays, occurrence);
             setDate(next);
         }
-    }, [dueDays, frequency]);
+    }, [dueDays, occurrence]);
 
     // Installment End Date Calculation
     React.useEffect(() => {
-        if (frequency === 'Installments' && installmentStartDate && totalInstallments) {
+        if (occurrence === 'Installments' && installmentStartDate && totalInstallments) {
             const count = parseInt(totalInstallments);
             if (count > 0) {
                 const end = new Date(installmentStartDate);
@@ -226,7 +244,7 @@ export default function AddBillScreen() {
                 setInstallmentEndDate('');
             }
         }
-    }, [installmentStartDate, totalInstallments, installmentRecurrence, frequency]);
+    }, [installmentStartDate, totalInstallments, installmentRecurrence, occurrence]);
 
     const [saving, setSaving] = useState(false);
 
@@ -252,15 +270,17 @@ export default function AddBillScreen() {
                     category: finalCategory,
                     isPaid,
                     isCleared,
-                    frequency,
+                    occurrence,
                     dueDays,
-                    totalInstallments: frequency === 'Installments' ? parseInt(totalInstallments) : undefined,
-                    paidInstallments: frequency === 'Installments' ? parseInt(paidInstallments) || 0 : undefined,
-                    totalInstallmentAmount: frequency === 'Installments' ? installmentTotalAmount : undefined,
-                    installmentStartDate: frequency === 'Installments' ? formatDate(installmentStartDate) : undefined,
-                    installmentEndDate: frequency === 'Installments' ? installmentEndDate : undefined,
-                    installmentRecurrence: frequency === 'Installments' ? installmentRecurrence : undefined,
-                    remainingBalance: frequency === 'Installments' ? ((parseFloat(installmentTotalAmount) || 0) - ((parseFloat(amount) || 0) * (parseInt(paidInstallments) || 0))).toFixed(2) : undefined
+                    totalInstallments: occurrence === 'Installments' ? parseInt(totalInstallments) || 0 : undefined,
+                    paidInstallments: occurrence === 'Installments' ? parseInt(paidInstallments) || 0 : undefined,
+                    totalInstallmentAmount: occurrence === 'Installments' ? installmentTotalAmount : undefined,
+                    installmentStartDate: occurrence === 'Installments' ? formatDate(installmentStartDate) : undefined,
+                    installmentEndDate: occurrence === 'Installments' ? installmentEndDate : undefined,
+                    installmentRecurrence: occurrence === 'Installments' ? installmentRecurrence : undefined,
+                    remainingBalance: occurrence === 'Installments' ? ((parseFloat(installmentTotalAmount) || 0) - ((parseFloat(amount) || 0) * (parseInt(paidInstallments) || 0))).toFixed(2) : undefined,
+                    notes,
+                    isRecurring,
                 });
             } else {
                 const finalCategory = category === 'Custom' ? customCategory : category;
@@ -273,15 +293,17 @@ export default function AddBillScreen() {
                     category: finalCategory,
                     isPaid,
                     isCleared,
-                    frequency,
+                    occurrence,
                     dueDays,
-                    totalInstallments: frequency === 'Installments' ? parseInt(totalInstallments) : undefined,
-                    paidInstallments: frequency === 'Installments' ? parseInt(paidInstallments) || 0 : 0,
-                    totalInstallmentAmount: frequency === 'Installments' ? installmentTotalAmount : undefined,
-                    installmentStartDate: frequency === 'Installments' ? formatDate(installmentStartDate) : undefined,
-                    installmentEndDate: frequency === 'Installments' ? installmentEndDate : undefined,
-                    installmentRecurrence: frequency === 'Installments' ? installmentRecurrence : undefined,
-                    remainingBalance: frequency === 'Installments' ? ((parseFloat(installmentTotalAmount) || 0) - ((parseFloat(amount) || 0) * (parseInt(paidInstallments) || 0))).toFixed(2) : undefined
+                    totalInstallments: occurrence === 'Installments' ? parseInt(totalInstallments) || 0 : undefined,
+                    paidInstallments: occurrence === 'Installments' ? parseInt(paidInstallments) || 0 : 0,
+                    totalInstallmentAmount: occurrence === 'Installments' ? installmentTotalAmount : undefined,
+                    installmentStartDate: occurrence === 'Installments' ? formatDate(installmentStartDate) : undefined,
+                    installmentEndDate: occurrence === 'Installments' ? installmentEndDate : undefined,
+                    installmentRecurrence: occurrence === 'Installments' ? installmentRecurrence : undefined,
+                    remainingBalance: occurrence === 'Installments' ? ((parseFloat(installmentTotalAmount) || 0) - ((parseFloat(amount) || 0) * (parseInt(paidInstallments) || 0))).toFixed(2) : undefined,
+                    notes,
+                    isRecurring,
                 });
             }
             router.back();
@@ -323,8 +345,8 @@ export default function AddBillScreen() {
                             >
                                 <View pointerEvents="none">
                                     <TextInput
-                                        label="Frequency"
-                                        value={frequency}
+                                        label="Occurrence"
+                                        value={occurrence}
                                         mode="outlined"
                                         style={styles.input}
                                         editable={false}
@@ -333,8 +355,8 @@ export default function AddBillScreen() {
                                 </View>
                             </TouchableOpacity>
 
-                            {/* Conditional Fields based on Frequency */}
-                            {frequency === 'Installments' ? (
+                            {/* Conditional Fields based on Occurrence */}
+                            {occurrence === 'Installments' ? (
                                 <View>
                                     <TextInput
                                         label="Total Installment Amount"
@@ -370,15 +392,38 @@ export default function AddBillScreen() {
                                         placeholder="e.g. 4"
                                     />
 
-                                    <TextInput
-                                        label="Paid Installments"
-                                        value={paidInstallments}
-                                        onChangeText={(text) => setPaidInstallments(text.replace(/[^0-9]/g, ''))}
-                                        mode="outlined"
-                                        keyboardType="number-pad"
-                                        style={styles.input}
-                                        placeholder="0"
-                                    />
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                                        <TextInput
+                                            label="Paid Installments"
+                                            value={paidInstallments}
+                                            onChangeText={(text) => setPaidInstallments(text.replace(/[^0-9]/g, ''))}
+                                            mode="outlined"
+                                            keyboardType="number-pad"
+                                            style={[styles.input, { flex: 1 }]}
+                                            placeholder="0"
+                                        />
+                                        <View style={{ flexDirection: 'row', gap: 5 }}>
+                                            <IconButton
+                                                icon="minus"
+                                                mode="contained"
+                                                size={24}
+                                                onPress={() => {
+                                                    const current = parseInt(paidInstallments) || 0;
+                                                    setPaidInstallments(Math.max(0, current - 1).toString());
+                                                }}
+                                            />
+                                            <IconButton
+                                                icon="plus"
+                                                mode="contained"
+                                                size={24}
+                                                onPress={() => {
+                                                    const current = parseInt(paidInstallments) || 0;
+                                                    const total = parseInt(totalInstallments) || Infinity;
+                                                    setPaidInstallments(Math.min(total, current + 1).toString());
+                                                }}
+                                            />
+                                        </View>
+                                    </View>
 
                                     {/* Installment Recurrence */}
                                     <View style={{ marginBottom: 16 }}>
@@ -437,6 +482,44 @@ export default function AddBillScreen() {
                                             </Text>
                                         </View>
                                     )}
+
+                                    {/* Payment History */}
+                                    {isEdit && editingBill?.paymentHistory && editingBill.paymentHistory.length > 0 && (
+                                        <View style={{ marginTop: 24 }}>
+                                            <Text variant="titleMedium" style={{ marginBottom: 16, fontWeight: 'bold' }}>Payment History</Text>
+                                            <View style={{ gap: 10 }}>
+                                                {editingBill.paymentHistory.slice().reverse().map((record) => (
+                                                    <View
+                                                        key={record.id}
+                                                        style={[
+                                                            styles.historyRecord,
+                                                            { borderColor: theme.colors.outlineVariant, backgroundColor: theme.colors.surface }
+                                                        ]}
+                                                    >
+                                                        <View style={{ flex: 1 }}>
+                                                            <Text variant="bodyMedium" style={{ fontWeight: 'bold' }}>
+                                                                Installment #{record.installmentNumber}
+                                                            </Text>
+                                                            <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
+                                                                Paid on {record.date}
+                                                            </Text>
+                                                        </View>
+                                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                                                            <Text variant="titleMedium" style={{ fontWeight: 'bold' }}>
+                                                                {currencySymbol}{record.amount}
+                                                            </Text>
+                                                            <IconButton
+                                                                icon="delete-outline"
+                                                                size={20}
+                                                                iconColor={theme.colors.error}
+                                                                onPress={() => deletePaymentRecord(editingBill.id, record.id)}
+                                                            />
+                                                        </View>
+                                                    </View>
+                                                ))}
+                                            </View>
+                                        </View>
+                                    )}
                                 </View>
                             ) : (
                                 <View>
@@ -459,9 +542,9 @@ export default function AddBillScreen() {
                                     >
                                         <View pointerEvents="none">
                                             <TextInput
-                                                label={frequency.includes('Week') ? "Repeats On" : "Due Day"}
+                                                label={occurrence.includes('Week') ? "Repeats On" : "Due Day"}
                                                 value={dueDays.length > 0
-                                                    ? dueDays.map(d => frequency.includes('Week') ? WEEKDAYS[d] : d + getOrdinalSuffix(d)).join(', ')
+                                                    ? dueDays.map(d => occurrence.includes('Week') ? WEEKDAYS[d] : d + getOrdinalSuffix(d)).join(', ')
                                                     : 'Select days'}
                                                 mode="outlined"
                                                 style={styles.input}
@@ -472,7 +555,7 @@ export default function AddBillScreen() {
                                     </TouchableOpacity>
 
                                     {/* Calculated Next Due Date (Read Only) - Only show for 'Every Month' */}
-                                    {frequency === 'Every Month' && (
+                                    {occurrence === 'Every Month' && (
                                         <TextInput
                                             label="Next Due Date"
                                             value={formatDate(date)}
@@ -571,7 +654,7 @@ export default function AddBillScreen() {
                                 <View style={styles.modalOverlay}>
                                     <View style={[styles.modalContent, { backgroundColor: theme.colors.surface }]}>
                                         <View style={styles.modalHeader}>
-                                            <Text variant="titleLarge" style={{ fontWeight: 'bold' }}>Select Frequency</Text>
+                                            <Text variant="titleLarge" style={{ fontWeight: 'bold' }}>Select Occurrence</Text>
                                             <IconButton
                                                 icon="close"
                                                 onPress={() => setShowFrequencyMenu(false)}
@@ -579,19 +662,19 @@ export default function AddBillScreen() {
                                         </View>
                                         <Divider />
                                         <FlatList
-                                            data={FREQUENCIES}
+                                            data={OCCURRENCES}
                                             keyExtractor={(item) => item}
                                             renderItem={({ item }) => (
                                                 <TouchableOpacity
                                                     style={styles.categoryItem}
                                                     onPress={() => {
-                                                        setFrequency(item as any);
-                                                        setDueDays([]); // Reset days on frequency change
+                                                        setOccurrence(item as any);
+                                                        setDueDays([]); // Reset days on occurrence change
                                                         setShowFrequencyMenu(false);
                                                     }}
                                                 >
                                                     <Text variant="bodyLarge">{item}</Text>
-                                                    {frequency === item && (
+                                                    {occurrence === item && (
                                                         <IconButton icon="check" iconColor={theme.colors.primary} />
                                                     )}
                                                 </TouchableOpacity>
@@ -614,21 +697,21 @@ export default function AddBillScreen() {
                                     <View style={[styles.modalContent, { backgroundColor: theme.colors.surface, height: '80%' }]}>
                                         <View style={styles.modalHeader}>
                                             <Text variant="titleLarge" style={{ fontWeight: 'bold' }}>
-                                                Select {frequency.includes('Week') ? 'Day of Week' : 'Day of Month'}
+                                                Select {occurrence.includes('Week') ? 'Day of Week' : 'Day of Month'}
                                             </Text>
                                             <Button onPress={() => setShowDayPicker(false)}>Done</Button>
                                         </View>
                                         {/* Helper Text */}
                                         <Text style={{ marginBottom: 10, alignSelf: 'center', color: theme.colors.secondary }}>
-                                            {frequency === 'Twice a Month' || frequency === 'Twice a Week' ? 'Select 2 days' :
-                                                (frequency === 'Every Month' || frequency === 'Installments' || frequency === 'Every Week') ? 'Select 1 day' :
+                                            {occurrence === 'Twice a Month' || occurrence === 'Twice a Week' ? 'Select 2 days' :
+                                                (occurrence === 'Every Month' || occurrence === 'Installments' || occurrence === 'Every Week') ? 'Select 1 day' :
                                                     'Select day(s)'}
                                         </Text>
 
                                         <Divider style={{ marginBottom: 10 }} />
 
                                         <ScrollView contentContainerStyle={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', paddingBottom: 40 }}>
-                                            {frequency.includes('Week') ? (
+                                            {occurrence.includes('Week') ? (
                                                 // Weekly View
                                                 WEEKDAYS.map((day, index) => {
                                                     const isSelected = dueDays.includes(index);
@@ -645,7 +728,7 @@ export default function AddBillScreen() {
                                                                     newDays = newDays.filter(d => d !== index);
                                                                 } else {
                                                                     // Constraints
-                                                                    if (frequency === 'Every Week' && newDays.length >= 1) {
+                                                                    if (occurrence === 'Every Week' && newDays.length >= 1) {
                                                                         // If purely single select, replace. 
                                                                         // But prompt said "select more than once day" for "Twice a month or every other week".
                                                                         // For "Every Week", usually single. Let's enforce single for Every Week.
@@ -655,7 +738,7 @@ export default function AddBillScreen() {
                                                                     }
                                                                 }
                                                                 // Special handling for Twice a Week in Week view (which is this block)
-                                                                if (frequency === 'Twice a Week') {
+                                                                if (occurrence === 'Twice a Week') {
                                                                     // Enforce max 2
                                                                     if (newDays.length > 2) {
                                                                         newDays.shift();
@@ -688,9 +771,9 @@ export default function AddBillScreen() {
                                                                 if (isSelected) {
                                                                     newDays = newDays.filter(d => d !== day);
                                                                 } else {
-                                                                    if (frequency === 'Every Month' || frequency === 'Installments') {
+                                                                    if (occurrence === 'Every Month' || occurrence === 'Installments') {
                                                                         newDays = [day];
-                                                                    } else if (frequency === 'Twice a Month' || frequency === 'Twice a Week') {
+                                                                    } else if (occurrence === 'Twice a Month' || occurrence === 'Twice a Week') {
                                                                         if (newDays.length >= 2) {
                                                                             newDays.shift();
                                                                             newDays.push(day);
@@ -756,6 +839,16 @@ export default function AddBillScreen() {
                                 />
                             </View>
 
+                            <View style={styles.switchRow}>
+                                <Text variant="bodyLarge">Recurring Payment</Text>
+                                <Switch
+                                    value={isRecurring}
+                                    onValueChange={setIsRecurring}
+                                    trackColor={{ false: '#767577', true: theme.colors.primary }}
+                                    thumbColor={Platform.OS === 'ios' ? undefined : '#f4f3f4'}
+                                />
+                            </View>
+
                             <View style={styles.checkboxRow}>
                                 <Checkbox.Android
                                     status={isCleared ? 'checked' : 'unchecked'}
@@ -767,47 +860,61 @@ export default function AddBillScreen() {
                                 </TouchableOpacity>
                             </View>
 
-                            {/* Category Picker Modal */}
-                            <Modal
-                                visible={showCategoryMenu}
-                                transparent={true}
-                                animationType="slide"
-                                onRequestClose={() => setShowCategoryMenu(false)}
-                            >
-                                <View style={styles.modalOverlay}>
-                                    <View style={[styles.modalContent, { backgroundColor: theme.colors.surface }]}>
-                                        <View style={styles.modalHeader}>
-                                            <Text variant="titleLarge" style={{ fontWeight: 'bold' }}>Select Category</Text>
-                                            <IconButton
-                                                icon="close"
-                                                onPress={() => setShowCategoryMenu(false)}
-                                            />
-                                        </View>
-                                        <Divider />
-                                        <FlatList
-                                            data={CATEGORIES}
-                                            keyExtractor={(item: string) => item}
-                                            renderItem={({ item }: { item: string }) => (
-                                                <TouchableOpacity
-                                                    style={styles.categoryItem}
-                                                    onPress={() => {
-                                                        setCategory(item);
-                                                        setShowCategoryMenu(false);
-                                                    }}
-                                                >
-                                                    <Text variant="bodyLarge">{item}</Text>
-                                                    {category === item && (
-                                                        <IconButton icon="check" iconColor={theme.colors.primary} />
-                                                    )}
-                                                </TouchableOpacity>
-                                            )}
-                                            ItemSeparatorComponent={() => <Divider />}
-                                            contentContainerStyle={{ paddingBottom: 40 }}
+                            <Divider style={{ marginVertical: 16 }} />
+
+                            <TextInput
+                                label="Notes"
+                                value={notes}
+                                onChangeText={setNotes}
+                                mode="outlined"
+                                multiline
+                                numberOfLines={4}
+                                style={[styles.input, { minHeight: 100 }]}
+                                placeholder="Add notes about this bill..."
+                            />
+
+
+                        </Card.Content>
+                        {/* Category Picker Modal */}
+                        <Modal
+                            visible={showCategoryMenu}
+                            transparent={true}
+                            animationType="slide"
+                            onRequestClose={() => setShowCategoryMenu(false)}
+                        >
+                            <View style={styles.modalOverlay}>
+                                <View style={[styles.modalContent, { backgroundColor: theme.colors.surface }]}>
+                                    <View style={styles.modalHeader}>
+                                        <Text variant="titleLarge" style={{ fontWeight: 'bold' }}>Select Category</Text>
+                                        <IconButton
+                                            icon="close"
+                                            onPress={() => setShowCategoryMenu(false)}
                                         />
                                     </View>
+                                    <Divider />
+                                    <FlatList
+                                        data={CATEGORIES}
+                                        keyExtractor={(item: string) => item}
+                                        renderItem={({ item }: { item: string }) => (
+                                            <TouchableOpacity
+                                                style={styles.categoryItem}
+                                                onPress={() => {
+                                                    setCategory(item);
+                                                    setShowCategoryMenu(false);
+                                                }}
+                                            >
+                                                <Text variant="bodyLarge">{item}</Text>
+                                                {category === item && (
+                                                    <IconButton icon="check" iconColor={theme.colors.primary} />
+                                                )}
+                                            </TouchableOpacity>
+                                        )}
+                                        ItemSeparatorComponent={() => <Divider />}
+                                        contentContainerStyle={{ paddingBottom: 40 }}
+                                    />
                                 </View>
-                            </Modal>
-                        </Card.Content>
+                            </View>
+                        </Modal>
                     </Card>
 
                     <Button
@@ -830,7 +937,7 @@ export default function AddBillScreen() {
                     </Button>
                 </ScrollView>
             </KeyboardAvoidingView>
-        </SafeAreaView>
+        </SafeAreaView >
     );
 }
 
@@ -911,5 +1018,12 @@ const styles = StyleSheet.create({
         marginBottom: 16,
         borderWidth: 1,
         borderStyle: 'dashed',
+    },
+    historyRecord: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        padding: 12,
+        borderRadius: 12,
+        borderWidth: 1,
     }
 });
