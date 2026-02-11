@@ -2,6 +2,7 @@ import React from 'react';
 import { View, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
 import { Text, List, Switch, useTheme, Divider, Button, Avatar, Menu } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useAuth } from '@clerk/clerk-expo';
 import { usePreferences } from '../../context/UserPreferencesContext';
 import { useUser } from '../../context/UserContext';
 import { useRouter } from 'expo-router';
@@ -32,6 +33,7 @@ export default function SettingsScreen() {
         setUpcomingReminderDays
     } = usePreferences();
     const { user } = useUser();
+    const { signOut } = useAuth();
     const [currencyMenuVisible, setCurrencyMenuVisible] = React.useState(false);
     const [themeMenuVisible, setThemeMenuVisible] = React.useState(false);
     const [reminderMenuVisible, setReminderMenuVisible] = React.useState(false);
@@ -56,7 +58,7 @@ export default function SettingsScreen() {
             "Are you sure you want to log out?",
             [
                 { text: "Cancel", style: "cancel" },
-                { text: "Log Out", style: "destructive", onPress: () => console.log('Logged Out') }
+                { text: "Log Out", style: "destructive", onPress: () => signOut() }
             ]
         );
     };
@@ -79,14 +81,14 @@ export default function SettingsScreen() {
                 <View style={styles.header}>
                     <Text variant="headlineMedium" style={styles.headerTitle}>Settings</Text>
                     <TouchableOpacity style={styles.profileRow} onPress={() => router.push('/profile')}>
-                        {user.avatar ? (
+                        {user?.avatar ? (
                             <Avatar.Image size={64} source={{ uri: user.avatar }} />
                         ) : (
-                            <Avatar.Text size={64} label={user.name.charAt(0).toUpperCase()} />
+                            <Avatar.Text size={64} label={user?.name?.charAt(0).toUpperCase() || 'U'} />
                         )}
                         <View style={styles.profileInfo}>
-                            <Text variant="titleLarge" style={{ fontWeight: 'bold' }}>{user.name}</Text>
-                            <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant }}>{user.email}</Text>
+                            <Text variant="titleLarge" style={{ fontWeight: 'bold' }}>{user?.name || 'Guest User'}</Text>
+                            <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant }}>{user?.email || 'Sign in to sync your data'}</Text>
                         </View>
                         <ChevronRight size={20} color={theme.colors.onSurfaceVariant} />
                     </TouchableOpacity>
@@ -103,7 +105,7 @@ export default function SettingsScreen() {
                         anchor={
                             <List.Item
                                 title="App Theme"
-                                description={preferences.themeMode.charAt(0).toUpperCase() + preferences.themeMode.slice(1)}
+                                description={((preferences.themeMode || 'system') as string).charAt(0).toUpperCase() + ((preferences.themeMode || 'system') as string).slice(1)}
                                 left={props => (
                                     <View style={styles.iconContainer}>
                                         {preferences.themeMode === 'dark' ? (

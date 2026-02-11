@@ -22,21 +22,23 @@ export default function ProfileScreen() {
         toggleBiometrics,
         setCurrency,
         setPayPeriodStart,
-        setPayPeriodFrequency
+        setPayPeriodOccurrence
     } = usePreferences();
 
-    const [name, setName] = useState(user.name);
-    const [email, setEmail] = useState(user.email);
-    const [avatar, setAvatar] = useState(user.avatar);
+    const [name, setName] = useState(user?.name || '');
+    const [email, setEmail] = useState(user?.email || '');
+    const [avatar, setAvatar] = useState(user?.avatar || null);
     const [isSaving, setIsSaving] = useState(false);
     const [currencyMenuVisible, setCurrencyMenuVisible] = useState(false);
     const [frequencyMenuVisible, setFrequencyMenuVisible] = useState(false);
     const [showDatePicker, setShowDatePicker] = useState(false);
 
     useEffect(() => {
-        setName(user.name);
-        setEmail(user.email);
-        setAvatar(user.avatar);
+        if (user) {
+            setName(user.name);
+            setEmail(user.email);
+            setAvatar(user.avatar);
+        }
     }, [user]);
 
     const handleSave = async () => {
@@ -199,7 +201,7 @@ export default function ProfileScreen() {
                             <List.Item
                                 title="Frequency"
                                 titleStyle={{ fontSize: 16 }}
-                                description={preferences.payPeriodFrequency}
+                                description={preferences.payPeriodOccurrence}
                                 descriptionStyle={{ textTransform: 'capitalize', color: theme.colors.primary }}
                                 onPress={() => setFrequencyMenuVisible(true)}
                                 right={props => <List.Icon {...props} icon="chevron-right" />}
@@ -207,9 +209,9 @@ export default function ProfileScreen() {
                             />
                         }
                     >
-                        <Menu.Item onPress={() => { setPayPeriodFrequency('weekly'); setFrequencyMenuVisible(false); }} title="Weekly" />
-                        <Menu.Item onPress={() => { setPayPeriodFrequency('bi-weekly'); setFrequencyMenuVisible(false); }} title="Bi-Weekly" />
-                        <Menu.Item onPress={() => { setPayPeriodFrequency('monthly'); setFrequencyMenuVisible(false); }} title="Monthly" />
+                        <Menu.Item onPress={() => { setPayPeriodOccurrence('weekly'); setFrequencyMenuVisible(false); }} title="Weekly" />
+                        <Menu.Item onPress={() => { setPayPeriodOccurrence('bi-weekly'); setFrequencyMenuVisible(false); }} title="Bi-Weekly" />
+                        <Menu.Item onPress={() => { setPayPeriodOccurrence('monthly'); setFrequencyMenuVisible(false); }} title="Monthly" />
                     </Menu>
 
                     <View style={styles.divider} />

@@ -1,57 +1,67 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import * as SecureStore from 'expo-secure-store';
+import React, { createContext, useContext, ReactNode, useEffect } from 'react';
+import { useUser as useClerkUser, useSession } from '@clerk/clerk-expo';
+import { setSupabaseTokenProvider } from '../services/supabase';
 
 interface UserProfile {
+    id: string;
     name: string;
     email: string;
     avatar: string | null;
 }
 
 interface UserContextType {
-    user: UserProfile;
-    updateUser: (updates: Partial<UserProfile>) => Promise<void>;
+    user: UserProfile | null;
+    isLoaded: boolean;
+    isSignedIn: boolean | undefined;
+    updateUser: (data: { name?: string; email?: string; avatar?: string | null }) => Promise<void>;
 }
 
 const UserContext = createContext<UserContextType | undefined>(undefined);
 
-const USER_DATA_KEY = 'user_profile_data';
-
-const DEFAULT_USER: UserProfile = {
-    name: 'Guest User',
-    email: 'guest@billi.app',
-    avatar: null,
-};
-
 export function UserProvider({ children }: { children: ReactNode }) {
-    const [user, setUser] = useState<UserProfile>(DEFAULT_USER);
+    const { user: clerkUser, isLoaded, isSignedIn } = useClerkUser();
+    const { session } = useSession();
+
+    const user: UserProfile | null = clerkUser ? {
+        id: clerkUser.id,
+        name: clerkUser.fullName || clerkUser.firstName || 'User',
+        email: clerkUser.primaryEmailAddress?.emailAddress || '',
+        avatar: clerkUser.imageUrl || null,
+    } : null;
+
+    const updateUser = async (data: { name?: string; email?: string; avatar?: string | null }) => {
+        if (!clerkUser) return;
+
+        const updateData: any = {};
+        if (data.name) {
+            const nameParts = data.name.trim().split(/\s+/);
+            updateData.firstName = nameParts[0];
+            updateData.lastName = nameParts.slice(1).join(' ');
+        }
+
+        // Note: Email updates are usually handled via Clerk's verification flow
+        // and might require more than just a simple update call if not using Clerk's UI.
+        // For this implementation, we focus on name and potentially avatar (if handled by Clerk).
+
+        try {
+            await clerkUser.update(updateData);
+        } catch (err) {
+            console.error('Error updating user profile:', err);
+            throw err;
+        }
+    };
 
     useEffect(() => {
-        loadUser();
-    }, []);
-
-    const loadUser = async () => {
-        try {
-            const json = await SecureStore.getItemAsync(USER_DATA_KEY);
-            if (json) {
-                setUser(JSON.parse(json));
-            }
-        } catch (error) {
-            console.error('Failed to load user profile:', error);
+        if (session) {
+            setSupabaseTokenProvider(() => {
+                console.log('[Supabase] Auth: Fetching fresh token for request');
+                return session.getToken({ template: 'supabase' });
+            });
         }
-    };
-
-    const updateUser = async (updates: Partial<UserProfile>) => {
-        const newUser = { ...user, ...updates };
-        setUser(newUser);
-        try {
-            await SecureStore.setItemAsync(USER_DATA_KEY, JSON.stringify(newUser));
-        } catch (error) {
-            console.error('Failed to save user profile:', error);
-        }
-    };
+    }, [session]);
 
     return (
-        <UserContext.Provider value={{ user, updateUser }}>
+        <UserContext.Provider value={{ user, isLoaded, isSignedIn, updateUser }}>
             {children}
         </UserContext.Provider>
     );

@@ -1,11 +1,26 @@
 import React, { useState, useMemo } from 'react';
 import { View, ScrollView, StyleSheet, TouchableOpacity } from 'react-native';
-import { Text, Card, useTheme, Button, Avatar, Menu, Divider, Searchbar, IconButton } from 'react-native-paper';
+import { Text, Card, useTheme, Button, Avatar, Menu, Divider, Searchbar, IconButton, ActivityIndicator } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import { useBills, Bill } from '../../context/BillContext';
 import { usePreferences } from '../../context/UserPreferencesContext';
 import { MONTHS, parseDate, getPayPeriodInterval, getBillStatusColor } from '../../utils/date';
+import { supabase } from '../../services/supabase';
+import { useUser } from '../../context/UserContext';
+
+export interface Transaction {
+    id: string;
+    user_id: string;
+    bill_id: string | null;
+    title: string;
+    amount: string;
+    category: string;
+    transaction_date: string;
+    settlement_type: 'PAID' | 'CLEARED';
+    notes?: string;
+}
 
 const CATEGORIES = [
     'Housing',
@@ -59,7 +74,10 @@ export default function HistoryScreen() {
     const theme = useTheme();
     const router = useRouter();
     const { bills } = useBills();
+    const { user, isSignedIn } = useUser();
     const { preferences } = usePreferences();
+    const [transactions, setTransactions] = useState<Transaction[]>([]);
+    const [loading, setLoading] = useState(false);
     const [filterPeriod, setFilterPeriod] = useState<'last' | 'this' | 'next' | 'all' | 'monthly'>('all');
     const [selectedMonth, setSelectedMonth] = useState(-1);
     const [showMonthMenu, setShowMonthMenu] = useState(false);
@@ -77,41 +95,80 @@ export default function HistoryScreen() {
         next: getPayPeriodInterval(preferences.payPeriodStart, preferences.payPeriodOccurrence, 1),
     }), [preferences.payPeriodStart, preferences.payPeriodOccurrence]);
 
+    const fetchTransactions = async () => {
+        if (!isSignedIn || !user) return;
+        setLoading(true);
+        try {
+            const { data, error } = await supabase
+                .from('transactions')
+                .select('*')
+                .order('transaction_date', { ascending: false });
+
+            if (error) throw error;
+            if (data) setTransactions(data as Transaction[]);
+        } catch (err) {
+            console.error('Error fetching transactions:', err);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useFocusEffect(
+        React.useCallback(() => {
+            fetchTransactions();
+        }, [isSignedIn, user])
+    );
+
     const { settledBills, paidTotal } = useMemo(() => {
-        const pertinentBills = bills.filter(bill => {
-            // Only show paid/cleared bills in History
-            if (!bill.isPaid && !bill.isCleared) return false;
+        // When signed in, we exclusively use the transactions from Supabase
+        // Otherwise, fall back to local bills that are marked paid/cleared
+        let source: (Transaction | Bill)[] = [];
+
+        if (isSignedIn && user) {
+            source = transactions;
+        } else {
+            source = bills.filter(b => b.isPaid || b.isCleared);
+        }
+
+        const pertinent = source.filter(item => {
+            const isTransaction = 'transaction_date' in item;
+            const title = item.title;
+            const category = item.category;
+            const dateStr = isTransaction ? (item as Transaction).transaction_date : (item as Bill).dueDate;
 
             // Apply Search Filter
-            if (searchQuery.length > 0 && !bill.title.toLowerCase().includes(searchQuery.toLowerCase())) {
+            if (searchQuery.length > 0 && !title.toLowerCase().includes(searchQuery.toLowerCase())) {
                 return false;
             }
 
             // Apply Category Filter
-            if (selectedCategory !== 'All' && bill.category !== selectedCategory) {
+            if (selectedCategory !== 'All' && category !== selectedCategory) {
                 return false;
             }
 
             if (filterPeriod === 'all') return true;
 
-            const billDate = parseDate(bill.dueDate);
+            const date = new Date(dateStr);
             if (filterPeriod === 'monthly') {
                 if (selectedMonth === -1) return true;
-                return billDate.getMonth() === selectedMonth && billDate.getFullYear() === new Date().getFullYear();
+                return date.getMonth() === selectedMonth && date.getFullYear() === new Date().getFullYear();
             }
 
             const interval = intervals[filterPeriod as keyof typeof intervals];
-            return billDate >= interval.start && billDate <= interval.end;
+            return date >= interval.start && date <= interval.end;
         });
 
-        // settledBills are paid/cleared bills in this period
-        const settled = pertinentBills
-            .sort((a, b) => parseDate(b.dueDate).getTime() - parseDate(a.dueDate).getTime()); // Newest first
+        // Sort: Newest first
+        const sorted = pertinent.sort((a, b) => {
+            const dateA = new Date('transaction_date' in a ? a.transaction_date : a.dueDate).getTime();
+            const dateB = new Date('transaction_date' in b ? b.transaction_date : b.dueDate).getTime();
+            return dateB - dateA;
+        });
 
-        const paid = settled.reduce((sum, bill) => sum + (parseFloat(bill.amount) || 0), 0);
+        const total = sorted.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
 
-        return { settledBills: settled, paidTotal: paid };
-    }, [filterPeriod, selectedMonth, intervals, bills, searchQuery, selectedCategory]);
+        return { settledBills: sorted, paidTotal: total };
+    }, [filterPeriod, selectedMonth, intervals, bills, transactions, searchQuery, selectedCategory, isSignedIn, user]);
 
     return (
         <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
@@ -279,23 +336,28 @@ export default function HistoryScreen() {
                 </View>
 
                 <ScrollView contentContainerStyle={{ paddingBottom: 100 }}>
-                    {settledBills.length > 0 ? settledBills.map(bill => (
-                        <Card key={bill.id} style={[styles.billCard, styles.settledCard]}>
+                    {loading && transactions.length === 0 ? (
+                        <View style={styles.loadingContainer}>
+                            <ActivityIndicator size="large" color={theme.colors.primary} />
+                            <Text variant="bodyMedium" style={{ marginTop: 16, opacity: 0.6 }}>Fetching history...</Text>
+                        </View>
+                    ) : settledBills.length > 0 ? settledBills.map((item: any) => (
+                        <Card key={item.id} style={[styles.billCard, styles.settledCard]}>
                             <Card.Title
-                                title={bill.title}
+                                title={item.title}
                                 titleStyle={{ opacity: 0.7 }}
                                 subtitle={
                                     <View>
                                         <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, opacity: 0.7 }}>
-                                            Settled on {bill.clearedDate || bill.dueDate}
+                                            Settled on {('transaction_date' in item) ? new Date(item.transaction_date).toLocaleDateString() : ((item as Bill).clearedDate || (item as Bill).dueDate)}
                                         </Text>
                                         <View style={[styles.categoryBadge, { flexDirection: 'row', alignItems: 'center', gap: 6, opacity: 0.6 }]}>
                                             <Text variant="labelSmall" style={styles.categoryText}>
-                                                {bill.category}
+                                                {item.category}
                                             </Text>
                                             <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: theme.colors.onSurfaceVariant, opacity: 0.3 }} />
                                             <Text variant="labelSmall" style={{ color: (theme.colors as any).success || theme.colors.primary, fontWeight: 'bold' }}>
-                                                {bill.isCleared ? 'CLEARED' : 'PAID'}
+                                                {('settlement_type' in item) ? (item as Transaction).settlement_type : ((item as Bill).isCleared ? 'CLEARED' : 'PAID')}
                                             </Text>
                                         </View>
                                     </View>
@@ -303,14 +365,14 @@ export default function HistoryScreen() {
                                 left={(props) => (
                                     <Avatar.Icon
                                         {...props}
-                                        icon={CATEGORY_ICONS[bill.category as keyof typeof CATEGORY_ICONS] || 'star'}
+                                        icon={CATEGORY_ICONS[item.category as keyof typeof CATEGORY_ICONS] || 'star'}
                                         style={{ backgroundColor: theme.colors.surfaceVariant, opacity: 0.5 }}
                                         color={theme.colors.onSurfaceVariant}
                                     />
                                 )}
                                 right={(props) => (
                                     <Text variant="titleMedium" style={{ marginRight: 16, opacity: 0.7, textDecorationLine: 'line-through' }}>
-                                        {currencySymbol}{bill.amount}
+                                        {currencySymbol}{item.amount}
                                     </Text>
                                 )}
                             />
@@ -397,5 +459,10 @@ const styles = StyleSheet.create({
     emptyContainer: {
         padding: 48,
         alignItems: 'center',
+    },
+    loadingContainer: {
+        padding: 48,
+        alignItems: 'center',
+        justifyContent: 'center',
     },
 });

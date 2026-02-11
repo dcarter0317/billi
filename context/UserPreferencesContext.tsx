@@ -2,6 +2,8 @@ import React, { createContext, useContext, useState, ReactNode, useEffect } from
 import { useColorScheme } from 'react-native';
 import { getItemAsync, setItemAsync } from 'expo-secure-store';
 import * as LocalAuthentication from 'expo-local-authentication';
+import { supabase } from '../services/supabase';
+import { useUser } from './UserContext';
 
 interface UserPreferences {
     themeMode: 'system' | 'light' | 'dark';
@@ -34,12 +36,14 @@ export function UserPreferencesProvider({ children }: { children: ReactNode }) {
     const colorScheme = useColorScheme();
     const systemColorScheme = colorScheme || 'light';
 
+    const { user, isSignedIn } = useUser();
+
     const [preferences, setPreferences] = useState<UserPreferences>({
         themeMode: 'system',
         notificationsEnabled: true,
         biometricsEnabled: false,
         currency: 'USD',
-        payPeriodStart: new Date(2026, 0, 26).getTime(), // Default to Jan 26, 2026
+        payPeriodStart: new Date(2026, 0, 26).getTime(),
         payPeriodOccurrence: 'bi-weekly',
         upcomingReminderDays: 2,
     });
@@ -51,22 +55,62 @@ export function UserPreferencesProvider({ children }: { children: ReactNode }) {
 
     const [isAuthenticated, setIsAuthenticated] = useState(false);
 
-    // Load preferences on mount
+    // Load preferences on mount or auth change
     useEffect(() => {
         async function loadPreferences() {
             try {
+                // 1. Try cloud if signed in
+                if (isSignedIn && user) {
+                    const { data, error } = await supabase
+                        .from('profiles')
+                        .select('*')
+                        .eq('id', user.id)
+                        .single();
+
+                    if (!error && data) {
+                        const cloudPrefs: UserPreferences = {
+                            themeMode: data.theme_mode as any,
+                            notificationsEnabled: data.notifications_enabled,
+                            biometricsEnabled: data.biometrics_enabled,
+                            currency: data.currency,
+                            payPeriodStart: new Date(data.pay_period_start).getTime(),
+                            payPeriodOccurrence: data.pay_period_occurrence as any,
+                            upcomingReminderDays: data.upcoming_warning_window,
+                        };
+                        setPreferences(cloudPrefs);
+                        if (!cloudPrefs.biometricsEnabled) setIsAuthenticated(true);
+                        return;
+                    }
+                }
+
+                // 2. Fallback to local
                 const saved = await getItemAsync(PREFERENCES_KEY);
+                let localOrComputedPrefs = preferences;
                 if (saved) {
                     const parsed = JSON.parse(saved);
-                    // Merge with defaults to handle new fields for existing users
-                    setPreferences(prev => ({ ...prev, ...parsed }));
-                    // If biometrics are NOT enabled, we are "authenticated" by default
+                    localOrComputedPrefs = { ...preferences, ...parsed };
+                    setPreferences(localOrComputedPrefs);
                     if (!parsed.biometricsEnabled) {
                         setIsAuthenticated(true);
                     }
                 } else {
-                    // No saved prefs, default to unlocked
                     setIsAuthenticated(true);
+                }
+
+                // 3. Ensure profile exists in DB if signed in (satisfy FKs)
+                if (isSignedIn && user) {
+                    await supabase.from('profiles').upsert({
+                        id: user.id,
+                        email: user.email,
+                        theme_mode: localOrComputedPrefs.themeMode,
+                        notifications_enabled: localOrComputedPrefs.notificationsEnabled,
+                        biometrics_enabled: localOrComputedPrefs.biometricsEnabled,
+                        currency: localOrComputedPrefs.currency,
+                        pay_period_start: new Date(localOrComputedPrefs.payPeriodStart).toISOString(),
+                        pay_period_occurrence: localOrComputedPrefs.payPeriodOccurrence,
+                        upcoming_warning_window: localOrComputedPrefs.upcomingReminderDays,
+                        updated_at: new Date().toISOString()
+                    });
                 }
             } catch (e) {
                 console.error('Failed to load preferences', e);
@@ -74,25 +118,44 @@ export function UserPreferencesProvider({ children }: { children: ReactNode }) {
             }
         }
         loadPreferences();
-    }, []);
+    }, [isSignedIn, user]);
 
-    // Helper to save and update state
-    const savePreferences = async (newPrefs: UserPreferences) => {
-        setPreferences(newPrefs);
+    // Internal utility functions (using function keyword for hoisting safety)
+    async function savePrefsHelper(newPrefs: UserPreferences) {
         try {
             await setItemAsync(PREFERENCES_KEY, JSON.stringify(newPrefs));
-        } catch (e) {
-            console.error('Failed to save preferences', e);
-        }
-    };
 
-    const authenticate = async () => {
+            if (isSignedIn && user) {
+                const { error } = await supabase
+                    .from('profiles')
+                    .upsert({
+                        id: user.id,
+                        email: user.email,
+                        theme_mode: newPrefs.themeMode,
+                        notifications_enabled: newPrefs.notificationsEnabled,
+                        biometrics_enabled: newPrefs.biometricsEnabled,
+                        currency: newPrefs.currency,
+                        pay_period_start: new Date(newPrefs.payPeriodStart).toISOString(),
+                        pay_period_occurrence: newPrefs.payPeriodOccurrence,
+                        upcoming_warning_window: newPrefs.upcomingReminderDays,
+                        updated_at: new Date().toISOString()
+                    });
+
+                if (error) {
+                    console.error('Supabase sync error:', error);
+                }
+            }
+        } catch (e) {
+            console.error('Failed to save preferences locally:', e);
+        }
+    }
+
+    async function authenticate() {
         try {
             const hasHardware = await LocalAuthentication.hasHardwareAsync();
             const isEnrolled = await LocalAuthentication.isEnrolledAsync();
 
             if (!hasHardware || !isEnrolled) {
-                // Device doesn't support or isn't set up, fallback to unlocked
                 setIsAuthenticated(true);
                 return true;
             }
@@ -112,49 +175,76 @@ export function UserPreferencesProvider({ children }: { children: ReactNode }) {
             console.error('Auth error', e);
             return false;
         }
-    };
+    }
 
+    // Exported setters
     const setThemeMode = (themeMode: 'system' | 'light' | 'dark') => {
-        savePreferences({ ...preferences, themeMode });
+        setPreferences(prev => {
+            const next = { ...prev, themeMode };
+            savePrefsHelper(next);
+            return next;
+        });
     };
 
     const toggleNotifications = () => {
-        savePreferences({ ...preferences, notificationsEnabled: !preferences.notificationsEnabled });
+        setPreferences(prev => {
+            const next = { ...prev, notificationsEnabled: !prev.notificationsEnabled };
+            savePrefsHelper(next);
+            return next;
+        });
     };
 
     const toggleBiometrics = async () => {
         const currentlyEnabled = preferences.biometricsEnabled;
+        let success = true;
 
         if (!currentlyEnabled) {
-            // Enabling: Must verify first
-            const success = await authenticate();
-            if (success) {
-                savePreferences({ ...preferences, biometricsEnabled: true });
-                return true;
-            }
-            return false;
-        } else {
-            // Disabling
-            savePreferences({ ...preferences, biometricsEnabled: false });
-            setIsAuthenticated(true);
+            success = await authenticate();
+        }
+
+        if (success) {
+            setPreferences(prev => {
+                const isEnabling = !prev.biometricsEnabled;
+                const next = { ...prev, biometricsEnabled: isEnabling };
+                savePrefsHelper(next);
+                if (!isEnabling) setIsAuthenticated(true);
+                return next;
+            });
             return true;
         }
+        return false;
     };
 
     const setCurrency = (currency: string) => {
-        savePreferences({ ...preferences, currency });
+        setPreferences(prev => {
+            const next = { ...prev, currency };
+            savePrefsHelper(next);
+            return next;
+        });
     };
 
     const setPayPeriodStart = (date: Date) => {
-        savePreferences({ ...preferences, payPeriodStart: date.getTime() });
+        setPreferences(prev => {
+            const next = { ...prev, payPeriodStart: date.getTime() };
+            savePrefsHelper(next);
+            return next;
+        });
     };
 
     const setPayPeriodOccurrence = (occurrence: 'weekly' | 'bi-weekly' | 'monthly') => {
-        savePreferences({ ...preferences, payPeriodOccurrence: occurrence });
+        setPreferences(prev => {
+            const next = { ...prev, payPeriodOccurrence: occurrence };
+            savePrefsHelper(next);
+            return next;
+        });
     };
 
     const setUpcomingReminderDays = (days: number) => {
-        savePreferences({ ...preferences, upcomingReminderDays: days });
+        setPreferences(prev => {
+            const next = { ...prev, upcomingReminderDays: days };
+            savePrefsHelper(next);
+            return next;
+        });
     };
 
     return (

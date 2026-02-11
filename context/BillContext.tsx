@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { parseDate } from '../utils/date';
+import { supabase } from '../services/supabase';
+import { useUser } from './UserContext';
 
 export interface PaymentRecord {
     id: string;
@@ -130,14 +132,30 @@ export function BillProvider({ children }: { children: ReactNode }) {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
+    const { user, isSignedIn } = useUser();
+
     const refreshBills = async () => {
         setLoading(true);
         try {
+            if (isSignedIn && user) {
+                // Fetch from Supabase
+                const { data, error } = await supabase
+                    .from('bills')
+                    .select('*')
+                    .order('order', { ascending: true });
+
+                if (error) throw error;
+                if (data) {
+                    setBillsState(data as Bill[]);
+                    return;
+                }
+            }
+
+            // Fallback to local storage
             const stored = await AsyncStorage.getItem(STORAGE_KEY);
             if (stored) {
                 setBillsState(JSON.parse(stored));
             } else {
-                // If it's the first time, use dummy data and save it
                 setBillsState(DUMMY_BILLS);
                 await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(DUMMY_BILLS));
             }
@@ -154,6 +172,28 @@ export function BillProvider({ children }: { children: ReactNode }) {
             await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(newBills));
         } catch (err) {
             console.error('Error saving bills:', err);
+        }
+    };
+
+    const recordTransaction = async (bill: Bill, type: 'PAID' | 'CLEARED') => {
+        if (!isSignedIn || !user) return;
+
+        try {
+            const { error } = await supabase
+                .from('transactions')
+                .insert({
+                    user_id: user.id,
+                    bill_id: bill.id,
+                    title: bill.title,
+                    amount: parseFloat(bill.amount),
+                    category: bill.category,
+                    settlement_type: type,
+                    notes: bill.notes
+                });
+
+            if (error) throw error;
+        } catch (err) {
+            console.error(`Failed to record ${type} transaction:`, err);
         }
     };
 
@@ -182,23 +222,27 @@ export function BillProvider({ children }: { children: ReactNode }) {
     };
 
     const updateBill = async (id: string, updates: Partial<Bill>) => {
-        const updatedBills = bills.map(b => b.id === id ? { ...b, ...updates } : b);
+        const updatedBills = bills.map((b: Bill) => b.id === id ? { ...b, ...updates } : b);
         setBillsState(updatedBills);
         await saveBillsToStorage(updatedBills);
     };
 
     const deleteBill = async (id: string) => {
-        const updatedBills = bills.filter(b => b.id !== id);
+        const updatedBills = bills.filter((b: Bill) => b.id !== id);
         setBillsState(updatedBills);
         await saveBillsToStorage(updatedBills);
     };
 
     const toggleBillStatus = async (id: string) => {
-        const bill = bills.find(b => b.id === id);
+        const bill = bills.find((b: Bill) => b.id === id);
         if (!bill) return;
 
         const newIsPaid = !bill.isPaid;
         let updates: Partial<Bill> = { isPaid: newIsPaid };
+
+        if (newIsPaid) {
+            await recordTransaction(bill, 'PAID');
+        }
 
         // Auto-increment installments if it's an installment bill and being marked as paid
         if (newIsPaid && bill.occurrence === 'Installments') {
@@ -233,13 +277,13 @@ export function BillProvider({ children }: { children: ReactNode }) {
     };
 
     const deletePaymentRecord = async (billId: string, recordId: string) => {
-        const bill = bills.find(b => b.id === billId);
+        const bill = bills.find((b: Bill) => b.id === billId);
         if (!bill) return;
 
-        const recordToDelete = bill.paymentHistory?.find(r => r.id === recordId);
+        const recordToDelete = bill.paymentHistory?.find((r: PaymentRecord) => r.id === recordId);
         if (!recordToDelete) return;
 
-        const newHistory = bill.paymentHistory?.filter(r => r.id !== recordId) || [];
+        const newHistory = bill.paymentHistory?.filter((r: PaymentRecord) => r.id !== recordId) || [];
         const newPaidCount = Math.max(0, (bill.paidInstallments || 0) - 1);
 
         const updates: Partial<Bill> = {
@@ -258,13 +302,14 @@ export function BillProvider({ children }: { children: ReactNode }) {
     };
 
     const toggleClearStatus = async (id: string) => {
-        const bill = bills.find(b => b.id === id);
+        const bill = bills.find((b: Bill) => b.id === id);
         if (!bill) return;
 
         const newIsCleared = !bill.isCleared;
         let updates: Partial<Bill> = { isCleared: newIsCleared };
 
         if (newIsCleared) {
+            await recordTransaction(bill, 'CLEARED');
             const now = new Date();
             // Format as MM-DD-YYYY
             const formattedDate = `${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}-${now.getFullYear()}`;
@@ -318,7 +363,7 @@ export function BillProvider({ children }: { children: ReactNode }) {
     };
 
     const resetAllStatuses = async () => {
-        const updatedBills = bills.map(b => ({ ...b, isPaid: false, isCleared: false, clearedDate: undefined }));
+        const updatedBills = bills.map((b: Bill) => ({ ...b, isPaid: false, isCleared: false, clearedDate: undefined }));
         setBillsState(updatedBills);
         await saveBillsToStorage(updatedBills);
     };
