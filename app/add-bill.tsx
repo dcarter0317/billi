@@ -123,8 +123,8 @@ export default function AddBillScreen() {
             setOccurrence(editingBill.occurrence || 'Every Month');
             setDueDays(editingBill.dueDays || []);
 
-            if (editingBill.totalInstallments) setTotalInstallments(editingBill.totalInstallments.toString());
-            if (editingBill.paidInstallments !== undefined) setPaidInstallments(editingBill.paidInstallments.toString());
+            if (editingBill.totalInstallments != null) setTotalInstallments(editingBill.totalInstallments.toString());
+            if (editingBill.paidInstallments != null) setPaidInstallments(editingBill.paidInstallments.toString());
             if (editingBill.totalInstallmentAmount) setInstallmentTotalAmount(editingBill.totalInstallmentAmount);
             if (editingBill.installmentStartDate) setInstallmentStartDate(parseFormattedDate(editingBill.installmentStartDate));
             if (editingBill.installmentEndDate) setInstallmentEndDate(editingBill.installmentEndDate);

@@ -33,6 +33,8 @@ export default function AuthScreen() {
     const [name, setName] = useState('');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [pendingVerification, setPendingVerification] = useState(false);
+    const [code, setCode] = useState('');
 
     const onSignInPress = async () => {
         if (!signInLoaded) return;
@@ -86,15 +88,95 @@ export default function AuthScreen() {
             });
 
             await signUp.prepareEmailAddressVerification({ strategy: 'email_code' });
-            // For simplicity in this demo, we'll assume the user is redirected to a verification step
-            // or we'd show a code input field here.
-            setError('Please check your email for a verification code.');
+            setPendingVerification(true);
         } catch (err: any) {
             setError(err.errors?.[0]?.message || 'Failed to sign up');
         } finally {
             setLoading(false);
         }
     };
+
+    const onVerifyPress = async () => {
+        if (!signUpLoaded) return;
+        setLoading(true);
+        setError(null);
+        try {
+            const completeSignUp = await signUp.attemptEmailAddressVerification({
+                code,
+            });
+
+            if (completeSignUp.status === 'complete') {
+                await setSignUpActive({ session: completeSignUp.createdSessionId });
+            } else {
+                console.log(JSON.stringify(completeSignUp, null, 2));
+            }
+        } catch (err: any) {
+            setError(err.errors?.[0]?.message || 'Verification failed');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    if (pendingVerification) {
+        return (
+            <KeyboardAvoidingView
+                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                style={[styles.container, { backgroundColor: theme.colors.background }]}
+            >
+                <ScrollView contentContainerStyle={styles.scrollContent}>
+                    <View style={styles.header}>
+                        <Avatar.Icon size={80} icon="email-check" style={{ backgroundColor: theme.colors.primary }} color="white" />
+                        <Text variant="displaySmall" style={styles.title}>Verify Email</Text>
+                        <Text variant="bodyLarge" style={styles.subtitle}>
+                            Enter the code we sent to {email}
+                        </Text>
+                    </View>
+
+                    <Card style={styles.card}>
+                        <Card.Content style={styles.cardContent}>
+                            <TextInput
+                                label="Verification Code"
+                                value={code}
+                                onChangeText={setCode}
+                                mode="outlined"
+                                style={styles.input}
+                                keyboardType="number-pad"
+                                left={<TextInput.Icon icon={() => <ArrowRight size={20} color={theme.colors.onSurfaceVariant} />} />}
+                                outlineColor="transparent"
+                                activeOutlineColor={theme.colors.primary}
+                            />
+
+                            {error && (
+                                <Text variant="bodySmall" style={[styles.error, { color: theme.colors.error }]}>
+                                    {error}
+                                </Text>
+                            )}
+
+                            <Button
+                                mode="contained"
+                                onPress={onVerifyPress}
+                                loading={loading}
+                                style={styles.button}
+                                contentStyle={styles.buttonContent}
+                                labelStyle={styles.buttonLabel}
+                            >
+                                Verify Email
+                            </Button>
+
+                            <TouchableOpacity
+                                onPress={() => setPendingVerification(false)}
+                                style={{ marginTop: 16, alignItems: 'center' }}
+                            >
+                                <Text variant="labelLarge" style={{ color: theme.colors.primary }}>
+                                    Back to Sign Up
+                                </Text>
+                            </TouchableOpacity>
+                        </Card.Content>
+                    </Card>
+                </ScrollView>
+            </KeyboardAvoidingView>
+        );
+    }
 
     return (
         <KeyboardAvoidingView
