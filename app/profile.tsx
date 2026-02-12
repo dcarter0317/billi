@@ -13,8 +13,7 @@ import { Camera } from 'lucide-react-native';
 export default function ProfileScreen() {
     const theme = useTheme();
     const router = useRouter();
-    const { user, updateUser } = useUser();
-    const { resetToDefaults } = useBills();
+    const { user, updateUser, deleteAccount } = useUser();
     const {
         preferences,
         setThemeMode,
@@ -26,9 +25,9 @@ export default function ProfileScreen() {
     } = usePreferences();
 
     const [name, setName] = useState(user?.name || '');
-    const [email, setEmail] = useState(user?.email || '');
     const [avatar, setAvatar] = useState(user?.avatar || null);
     const [isSaving, setIsSaving] = useState(false);
+    const [isDeleting, setIsDeleting] = useState(false);
     const [currencyMenuVisible, setCurrencyMenuVisible] = useState(false);
     const [frequencyMenuVisible, setFrequencyMenuVisible] = useState(false);
     const [showDatePicker, setShowDatePicker] = useState(false);
@@ -36,7 +35,6 @@ export default function ProfileScreen() {
     useEffect(() => {
         if (user) {
             setName(user.name);
-            setEmail(user.email);
             setAvatar(user.avatar);
         }
     }, [user]);
@@ -44,7 +42,7 @@ export default function ProfileScreen() {
     const handleSave = async () => {
         setIsSaving(true);
         try {
-            await updateUser({ name, email, avatar });
+            await updateUser({ name, avatar });
             Alert.alert("Success", "Profile updated successfully.");
             router.back();
         } catch (error) {
@@ -80,23 +78,33 @@ export default function ProfileScreen() {
         }
     };
 
-    const handleRestoreData = () => {
+    const handleDeleteAccount = () => {
         Alert.alert(
-            "Restore Demo Data",
-            "This will overwrite all current bills with the initial demo data. Are you sure?",
+            "Delete Account",
+            "This action is permanent and will delete all your bills, transactions, and profile data. Are you sure?",
             [
                 { text: "Cancel", style: "cancel" },
                 {
-                    text: "Restore",
+                    text: "Delete",
                     style: "destructive",
                     onPress: async () => {
-                        await resetToDefaults();
-                        Alert.alert("Success", "Demo data restored.");
+                        setIsDeleting(true);
+                        try {
+                            await deleteAccount();
+                            // Clerk's SignOut/SignedIn wrapper in _layout will handle redirect
+                            Alert.alert("Account Deleted", "Your account and data have been permanently removed.");
+                        } catch (err) {
+                            Alert.alert("Error", "Failed to delete account. Please try again.");
+                            console.error(err);
+                        } finally {
+                            setIsDeleting(false);
+                        }
                     }
                 }
             ]
         );
     };
+
 
     const currencies = ['USD', 'EUR', 'GBP', 'CAD', 'AUD', 'JPY'];
 
@@ -143,15 +151,6 @@ export default function ProfileScreen() {
                             onChangeText={setName}
                             mode="outlined"
                             style={styles.input}
-                        />
-                        <TextInput
-                            label="Email"
-                            value={email}
-                            onChangeText={setEmail}
-                            mode="outlined"
-                            style={styles.input}
-                            keyboardType="email-address"
-                            autoCapitalize="none"
                         />
                     </View>
 
@@ -265,15 +264,19 @@ export default function ProfileScreen() {
                         ))}
                     </Menu>
 
+
                     <View style={styles.divider} />
 
                     <Button
-                        mode="outlined"
-                        onPress={handleRestoreData}
+                        mode="text"
+                        onPress={handleDeleteAccount}
                         textColor={theme.colors.error}
-                        style={{ borderColor: theme.colors.error, marginBottom: 40 }}
+                        loading={isDeleting}
+                        disabled={isDeleting || isSaving}
+                        icon="trash-can-outline"
+                        style={{ marginBottom: 60 }}
                     >
-                        Restore Demo Data
+                        Delete Account
                     </Button>
 
                 </ScrollView>

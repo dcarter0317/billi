@@ -34,7 +34,11 @@ const customFetch = async (url: string, options: any = {}) => {
         const token = await getClerkToken();
         if (token) {
             headers.set('Authorization', `Bearer ${token}`);
+        } else {
+            console.warn('[Supabase] Clerk token provider returned null/undefined. Request may be unauthenticated.');
         }
+    } else {
+        console.warn('[Supabase] No Clerk token provider set. Request will be unauthenticated.');
     }
 
     options.headers = headers;

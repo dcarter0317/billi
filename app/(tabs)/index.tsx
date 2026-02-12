@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { View, ScrollView, StyleSheet, TouchableOpacity, Alert } from 'react-native';
+import { ChevronRight } from 'lucide-react-native';
 import { Text, Card, useTheme, Button, Avatar, Menu, Divider, Searchbar, IconButton } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -7,6 +8,20 @@ import { useUser } from '../../context/UserContext';
 import { useBills, Bill } from '../../context/BillContext';
 import { usePreferences } from '../../context/UserPreferencesContext';
 import { MONTHS, parseDate, getPayPeriodInterval, getBillStatusColor, getDisplayDate, getBillAlertStatus } from '../../utils/date';
+import { supabase } from '../../services/supabase';
+import { useFocusEffect } from '@react-navigation/native';
+
+export interface Transaction {
+    id: string;
+    user_id: string;
+    bill_id: string | null;
+    title: string;
+    amount: string;
+    category: string;
+    transaction_date: string;
+    settlement_type: 'PAID' | 'CLEARED';
+    notes?: string;
+}
 
 const CATEGORIES = [
     'Housing',
@@ -62,7 +77,7 @@ export default function HomeScreen() {
     const { user } = useUser();
     const { bills } = useBills();
     const { preferences } = usePreferences();
-    const [filterPeriod, setFilterPeriod] = useState<'last' | 'this' | 'next' | 'all' | 'monthly'>('all');
+    const [filterPeriod, setFilterPeriod] = useState<'last' | 'this' | 'next' | 'all' | 'monthly'>('this');
     const [selectedMonth, setSelectedMonth] = useState(-1);
     const [showMonthMenu, setShowMonthMenu] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
@@ -73,16 +88,46 @@ export default function HomeScreen() {
 
     const currencySymbol = preferences.currency === 'EUR' ? '€' : '$';
 
+    const [transactions, setTransactions] = useState<Transaction[]>([]);
+    const [loadingTransactions, setLoadingTransactions] = useState(false);
+
     const intervals = useMemo(() => ({
         last: getPayPeriodInterval(preferences.payPeriodStart, preferences.payPeriodOccurrence, -1),
         this: getPayPeriodInterval(preferences.payPeriodStart, preferences.payPeriodOccurrence, 0),
         next: getPayPeriodInterval(preferences.payPeriodStart, preferences.payPeriodOccurrence, 1),
     }), [preferences.payPeriodStart, preferences.payPeriodOccurrence]);
 
+    const fetchTransactions = async () => {
+        if (!user) return;
+        setLoadingTransactions(true);
+        try {
+            const { data, error } = await supabase
+                .from('transactions')
+                .select('*')
+                .order('transaction_date', { ascending: false });
+
+            if (error) throw error;
+            if (data) setTransactions(data as Transaction[]);
+        } catch (err) {
+            console.error('[Home] Error fetching transactions:', err);
+        } finally {
+            setLoadingTransactions(false);
+        }
+    };
+
+    useFocusEffect(
+        React.useCallback(() => {
+            fetchTransactions();
+        }, [user?.id])
+    );
+
     // Unified logic: First filter bills by period AND search AND category, then derive stats
     const { upcomingBills, settledBills, totalDue, paidTotal } = useMemo(() => {
-        const pertinentBills = bills.filter((bill: Bill) => {
-            // Apply Search Filter first
+        // 1. Upcoming Bills: Derived from current bill states
+        const upcoming = bills.filter((bill: Bill) => {
+            if (bill.isPaid) return false;
+
+            // Apply Search Filter
             if (searchQuery.length > 0 && !bill.title.toLowerCase().includes(searchQuery.toLowerCase())) {
                 return false;
             }
@@ -101,74 +146,53 @@ export default function HomeScreen() {
 
             if (filterPeriod === 'monthly') {
                 if (selectedMonth === -1) return true;
-
-                // Show if it matches exactly
                 if (billDate.getMonth() === selectedMonth && billDate.getFullYear() === currentYear) return true;
-
-                // For recurring bills, project into future months
                 if (bill.isRecurring) {
                     if (billDate.getFullYear() < currentYear) return true;
                     if (billDate.getFullYear() === currentYear && selectedMonth > billDate.getMonth()) return true;
-                    if (billDate.getFullYear() > currentYear) return false; // Starts in future
                 }
                 return false;
             }
 
             const interval = intervals[filterPeriod as keyof typeof intervals];
             if (!interval) return false;
-
-            // Show if it exactly falls within the interval
             if (billDate >= interval.start && billDate <= interval.end) return true;
-
-            // For recurring bills, show if the interval is in the future
-            if (bill.isRecurring && interval.start > billDate) {
-                return true;
-            }
+            if (bill.isRecurring && interval.start > billDate) return true;
 
             return false;
+        }).sort((a: Bill, b: Bill) => parseDate(a.dueDate).getTime() - parseDate(b.dueDate).getTime());
+
+        // 2. Settled Bills: Derived from Transactions for accuracy
+        const settled = transactions.filter(t => {
+            // Apply Search Filter
+            if (searchQuery.length > 0 && !t.title.toLowerCase().includes(searchQuery.toLowerCase())) {
+                return false;
+            }
+
+            // Apply Category Filter
+            if (selectedCategory !== 'All' && t.category !== selectedCategory) {
+                return false;
+            }
+
+            if (filterPeriod === 'all') return true;
+
+            const tDate = new Date(t.transaction_date);
+            const currentYear = new Date().getFullYear();
+
+            if (filterPeriod === 'monthly') {
+                if (selectedMonth === -1) return true;
+                return tDate.getMonth() === selectedMonth && tDate.getFullYear() === currentYear;
+            }
+
+            const interval = intervals[filterPeriod as keyof typeof intervals];
+            return tDate >= interval.start && tDate <= interval.end;
         });
 
-        // upcomingBills are unpaid bills in this period
-        const upcoming = pertinentBills
-            .filter((bill: Bill) => !bill.isPaid)
-            .sort((a: Bill, b: Bill) => parseDate(a.dueDate).getTime() - parseDate(b.dueDate).getTime());
-
-        // settledBills are paid/cleared bills in this period
-        const settled = pertinentBills
-            .filter((bill: Bill) => bill.isPaid)
-            .sort((a: Bill, b: Bill) => parseDate(b.dueDate).getTime() - parseDate(a.dueDate).getTime()); // Newest first
-
-        // Calculate totals based on the filtered set
         const due = upcoming.reduce((sum: number, bill: Bill) => sum + (parseFloat(bill.amount) || 0), 0);
-
-        // For 'all' view, we might want "Paid This Month" as context, 
-        // but for specific periods, we want "Paid In Period".
-        let paid = 0;
-
-        // If searching or filtering by category, show exact matches for paid total too
-        if (searchQuery.length > 0 || selectedCategory !== 'All') {
-            paid = settled.reduce((sum: number, bill: Bill) => sum + (parseFloat(bill.amount) || 0), 0);
-        } else if (filterPeriod === 'all') {
-            // For All view w/o search/category, stick to "Paid This Month" logic for relevance
-            const now = new Date();
-            const currentMonth = now.getMonth();
-            const currentYear = now.getFullYear();
-            paid = bills
-                .filter((b: Bill) => b.isPaid)
-                .reduce((sum: number, bill: Bill) => {
-                    const billDate = parseDate(bill.dueDate);
-                    if (billDate.getMonth() === currentMonth && billDate.getFullYear() === currentYear) {
-                        return sum + (parseFloat(bill.amount) || 0);
-                    }
-                    return sum;
-                }, 0);
-        } else {
-            // For specific periods, sum the paid bills IN that period
-            paid = settled.reduce((sum: number, bill: Bill) => sum + (parseFloat(bill.amount) || 0), 0);
-        }
+        const paid = settled.reduce((sum: number, t: Transaction) => sum + (parseFloat(t.amount) || 0), 0);
 
         return { upcomingBills: upcoming, settledBills: settled, totalDue: due, paidTotal: paid };
-    }, [filterPeriod, selectedMonth, intervals, bills, searchQuery, selectedCategory]);
+    }, [filterPeriod, selectedMonth, intervals, bills, transactions, searchQuery, selectedCategory]);
 
     return (
         <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
@@ -198,6 +222,25 @@ export default function HomeScreen() {
                         </TouchableOpacity>
                     </View>
                 </View>
+
+                {/* Complete Profile Warning */}
+                {user && user.name === 'User' && (
+                    <TouchableOpacity onPress={() => router.push('/profile')} activeOpacity={0.8}>
+                        <Card style={[styles.profileWarningCard, { backgroundColor: theme.colors.errorContainer }]}>
+                            <Card.Content style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                                <View style={{ flex: 1 }}>
+                                    <Text variant="titleMedium" style={{ fontWeight: 'bold', color: theme.colors.onErrorContainer }}>
+                                        Complete your profile
+                                    </Text>
+                                    <Text variant="bodySmall" style={{ color: theme.colors.onErrorContainer, marginTop: 4 }}>
+                                        Set your name to personalize your experience.
+                                    </Text>
+                                </View>
+                                <ChevronRight size={20} color={theme.colors.onErrorContainer} />
+                            </Card.Content>
+                        </Card>
+                    </TouchableOpacity>
+                )}
 
                 {/* Total Balance Card */}
                 <Card style={[styles.balanceCard, { backgroundColor: theme.colors.primary }]}>
@@ -489,6 +532,44 @@ export default function HomeScreen() {
                     )
                 }
 
+                {
+                    settledBills.length > 0 && (
+                        <View style={{ marginTop: 24 }}>
+                            <Text variant="titleLarge" style={{ fontWeight: 'bold', marginBottom: 12 }}>Settled</Text>
+                            {settledBills.map((item: any) => (
+                                <Card key={item.id} style={[styles.billCard, styles.settledCard]}>
+                                    <Card.Title
+                                        title={<Text variant="titleMedium" style={{ fontWeight: 'bold', textDecorationLine: 'line-through', opacity: 0.6 }}>{item.title}</Text>}
+                                        subtitle={
+                                            <View>
+                                                <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, opacity: 0.6 }}>
+                                                    Settled on {('transaction_date' in item) ? new Date(item.transaction_date).toLocaleDateString() : (item.clearedDate || item.dueDate)}
+                                                </Text>
+                                                <View style={[styles.categoryBadge, { opacity: 0.5 }]}>
+                                                    <Text variant="labelSmall" style={styles.categoryText}>{item.category}</Text>
+                                                </View>
+                                            </View>
+                                        }
+                                        left={(props) => (
+                                            <Avatar.Icon
+                                                {...props}
+                                                icon={CATEGORY_ICONS[item.category as keyof typeof CATEGORY_ICONS] || 'star'}
+                                                style={{ backgroundColor: theme.colors.surfaceVariant, opacity: 0.5 }}
+                                                color={theme.colors.onSurfaceVariant}
+                                            />
+                                        )}
+                                        right={(props) => (
+                                            <Text variant="titleMedium" style={{ marginRight: 16, opacity: 0.6, textDecorationLine: 'line-through' }}>
+                                                {currencySymbol}{item.amount}
+                                            </Text>
+                                        )}
+                                    />
+                                </Card>
+                            ))}
+                        </View>
+                    )
+                }
+
             </ScrollView >
         </SafeAreaView >
     );
@@ -510,6 +591,12 @@ const styles = StyleSheet.create({
     balanceCard: {
         marginBottom: 24,
         borderRadius: 24,
+        marginTop: 12,
+    },
+    profileWarningCard: {
+        marginBottom: 12, // Reduced margin below to make balance card closer if present
+        borderRadius: 16,
+        elevation: 0,
     },
     badgeRow: {
         flexDirection: 'row',

@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { parseDate } from '../utils/date';
+import { parseDate, formatDate } from '../utils/date';
 import { supabase } from '../services/supabase';
 import { useUser } from './UserContext';
 
@@ -49,7 +49,6 @@ interface BillContextType {
     setBills: (bills: Bill[]) => void;
     refreshBills: () => Promise<void>;
     deletePaymentRecord: (billId: string, recordId: string) => Promise<void>;
-    resetToDefaults: () => Promise<void>;
 }
 
 const BillContext = createContext<BillContextType | undefined>(undefined);
@@ -167,40 +166,62 @@ export function BillProvider({ children }: { children: ReactNode }) {
 
     const addBill = async (bill: Omit<Bill, 'id'>) => {
         setLoading(true);
+        setError(null);
+
+        // Optimistic UI update: Create a temporary bill
+        const tempId = `temp-${Math.random().toString(36).substr(2, 9)}`;
+        const optimisticBill: Bill = {
+            id: tempId,
+            ...bill as any,
+            order: bills.length // Add to end for now
+        };
+
+        // Update local state immediately
+        setBillsState(prev => [...prev, optimisticBill]);
+
         try {
             if (isSignedIn && user) {
                 const dbBill = mapLocalBillToDb(bill, user.id);
-                // Use a temporary but real-enough looking ID for optimism or just use random for now
-                // Actually, the database might trigger an ID or we can provide one. 
-                // Let's assume the table 'bills' uses a text ID as per schema
-                dbBill.id = Math.random().toString(36).substr(2, 9);
+                const { data, error: insertError } = await supabase
+                    .from('bills')
+                    .insert(dbBill)
+                    .select()
+                    .single();
 
-                const { error } = await supabase.from('bills').insert(dbBill);
-                if (error) throw error;
-                await refreshBills();
+                if (insertError) throw insertError;
+
+                if (data) {
+                    // Replace temp bill with real one from DB
+                    const realBill = mapDbBillToLocal(data);
+                    setBillsState(prev => prev.map(b => b.id === tempId ? realBill : b));
+                }
             } else {
-                const newBill: Bill = {
-                    id: Math.random().toString(36).substr(2, 9),
-                    ...bill as any,
-                    order: bills.length
-                };
-                const updatedBills = [...bills, newBill];
+                const updatedBills = bills.map(b => b.id === tempId ? { ...b, id: Math.random().toString(36).substr(2, 9) } : b);
                 setBillsState(updatedBills);
                 await saveBillsToStorage(updatedBills);
             }
-        } catch (err) {
+        } catch (err: any) {
             console.error('Error adding bill:', err);
-            setError('Failed to add bill.');
+            setError(err.message || 'Failed to add bill.');
+            // Rollback optimistic update
+            setBillsState(prev => prev.filter(b => b.id !== tempId));
         } finally {
             setLoading(false);
         }
     };
 
     const updateBill = async (id: string, updates: Partial<Bill>) => {
+        const originalBill = bills.find(b => b.id === id);
+        if (!originalBill) return;
+
+        // Optimistic UI
+        setBillsState(prev => prev.map(b => b.id === id ? { ...b, ...updates } : b));
+
         try {
             if (isSignedIn && user) {
                 const dbUpdates = mapLocalBillToDb(updates, user.id);
-                delete dbUpdates.user_id; // Don't try to update user_id
+                delete (dbUpdates as any).id;
+                delete dbUpdates.user_id;
 
                 const { error } = await supabase
                     .from('bills')
@@ -208,19 +229,25 @@ export function BillProvider({ children }: { children: ReactNode }) {
                     .eq('id', id);
 
                 if (error) throw error;
-                // Update local state immediately for responsiveness
-                setBillsState(prev => prev.map(b => b.id === id ? { ...b, ...updates } : b));
             } else {
-                const updatedBills = bills.map((b: Bill) => b.id === id ? { ...b, ...updates } : b);
-                setBillsState(updatedBills);
+                const updatedBills = bills.map(b => b.id === id ? { ...b, ...updates } : b);
                 await saveBillsToStorage(updatedBills);
             }
         } catch (err) {
             console.error('Error updating bill:', err);
+            // Rollback
+            setBillsState(prev => prev.map(b => b.id === id ? originalBill : b));
+            setError('Failed to update bill.');
         }
     };
 
     const deleteBill = async (id: string) => {
+        const billToDelete = bills.find(b => b.id === id);
+        if (!billToDelete) return;
+
+        // Optimistic UI
+        setBillsState(prev => prev.filter(b => b.id !== id));
+
         try {
             if (isSignedIn && user) {
                 const { error } = await supabase
@@ -229,14 +256,15 @@ export function BillProvider({ children }: { children: ReactNode }) {
                     .eq('id', id);
 
                 if (error) throw error;
-                setBillsState(prev => prev.filter(b => b.id !== id));
             } else {
                 const updatedBills = bills.filter((b: Bill) => b.id !== id);
-                setBillsState(updatedBills);
                 await saveBillsToStorage(updatedBills);
             }
         } catch (err) {
             console.error('Error deleting bill:', err);
+            // Rollback
+            setBillsState(prev => [...prev, billToDelete]);
+            setError('Failed to delete bill.');
         }
     };
 
@@ -246,6 +274,14 @@ export function BillProvider({ children }: { children: ReactNode }) {
 
         const newIsPaid = !bill.isPaid;
         let updates: Partial<Bill> = { isPaid: newIsPaid };
+
+        if (newIsPaid && bill.occurrence === 'Installments') {
+            const currentPaid = bill.paidInstallments || 0;
+            const total = bill.totalInstallments || Infinity;
+            if (currentPaid < total) {
+                updates.paidInstallments = currentPaid + 1;
+            }
+        }
 
         if (newIsPaid) {
             await recordTransaction(bill, 'PAID');
@@ -270,37 +306,57 @@ export function BillProvider({ children }: { children: ReactNode }) {
 
         if (newIsCleared) {
             await recordTransaction(bill, 'CLEARED');
-            const now = new Date();
-            const formattedDate = `${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}-${now.getFullYear()}`;
-            updates.clearedDate = formattedDate;
+            updates.clearedDate = formatDate(new Date());
 
             if (bill.isRecurring) {
                 const currentDueDate = parseDate(bill.dueDate);
                 let nextDueDate = new Date(currentDueDate);
 
-                switch (bill.occurrence) {
-                    case 'Every Week':
-                        nextDueDate.setDate(currentDueDate.getDate() + 7);
-                        break;
-                    case 'Every Other Week':
-                        nextDueDate.setDate(currentDueDate.getDate() + 14);
-                        break;
-                    case 'Twice a Month':
-                        nextDueDate.setDate(currentDueDate.getDate() + 15);
-                        break;
-                    case 'Every Month':
-                    case 'Installments':
-                        nextDueDate.setMonth(currentDueDate.getMonth() + 1);
-                        break;
-                    case 'Twice a Week':
-                        nextDueDate.setDate(currentDueDate.getDate() + 3);
-                        break;
-                    default:
-                        nextDueDate.setMonth(currentDueDate.getMonth() + 1);
+                if (bill.dueDays && bill.dueDays.length > 0) {
+                    const sortedDays = [...bill.dueDays].sort((a, b) => a - b);
+                    const occurrence = bill.occurrence || 'Every Month';
+                    if (occurrence.includes('Week')) {
+                        const currentDay = currentDueDate.getDay();
+                        const nextDay = sortedDays.find(d => d > currentDay);
+                        if (nextDay !== undefined) {
+                            nextDueDate.setDate(currentDueDate.getDate() + (nextDay - currentDay));
+                        } else {
+                            nextDueDate.setDate(currentDueDate.getDate() + (7 - currentDay + sortedDays[0]));
+                        }
+                    } else {
+                        const currentDate = currentDueDate.getDate();
+                        const nextDay = sortedDays.find(d => d > currentDate);
+                        if (nextDay !== undefined) {
+                            nextDueDate.setDate(nextDay);
+                            if (nextDueDate.getDate() !== nextDay) nextDueDate.setDate(0);
+                        } else {
+                            nextDueDate.setMonth(currentDueDate.getMonth() + 1);
+                            nextDueDate.setDate(sortedDays[0]);
+                            if (nextDueDate.getDate() !== sortedDays[0]) nextDueDate.setDate(0);
+                        }
+                    }
+                } else {
+                    switch (bill.occurrence) {
+                        case 'Every Week':
+                            nextDueDate.setDate(currentDueDate.getDate() + 7);
+                            break;
+                        case 'Every Other Week':
+                            nextDueDate.setDate(currentDueDate.getDate() + 14);
+                            break;
+                        case 'Twice a Month':
+                            nextDueDate.setDate(currentDueDate.getDate() + 15);
+                            break;
+                        case 'Twice a Week':
+                            nextDueDate.setDate(currentDueDate.getDate() + 3);
+                            break;
+                        default:
+                            nextDueDate.setMonth(currentDueDate.getMonth() + 1);
+                    }
                 }
 
-                const nextFormattedDate = `${String(nextDueDate.getMonth() + 1).padStart(2, '0')}-${String(nextDueDate.getDate()).padStart(2, '0')}-${nextDueDate.getFullYear()}`;
-                updates.dueDate = nextFormattedDate;
+                updates.dueDate = formatDate(nextDueDate);
+                updates.isPaid = false;
+                updates.isCleared = false;
             }
         } else {
             updates.clearedDate = undefined;
@@ -310,28 +366,55 @@ export function BillProvider({ children }: { children: ReactNode }) {
     };
 
     const resetAllStatuses = async () => {
-        // This is complex for a bulk update via Supabase if not careful, 
-        // but for now let's just loop or update local.
         const updatedBills = bills.map((b: Bill) => ({ ...b, isPaid: false, isCleared: false, clearedDate: undefined }));
         setBillsState(updatedBills);
-        if (!isSignedIn) {
-            await saveBillsToStorage(updatedBills);
+
+        try {
+            if (isSignedIn && user) {
+                const { error } = await supabase
+                    .from('bills')
+                    .update({
+                        is_paid: false,
+                        is_cleared: false,
+                        cleared_date: null
+                    })
+                    .eq('user_id', user.id);
+
+                if (error) throw error;
+            } else {
+                await saveBillsToStorage(updatedBills);
+            }
+        } catch (err) {
+            console.error('Error resetting statuses:', err);
         }
     };
 
     const setBills = async (newBills: Bill[]) => {
-        setBillsState(newBills);
-        if (!isSignedIn) {
-            await saveBillsToStorage(newBills);
+        const updatedWithOrder = newBills.map((b, index) => ({ ...b, order: index }));
+        setBillsState(updatedWithOrder);
+
+        try {
+            if (isSignedIn && user) {
+                // Persist order to Supabase
+                // We can use upsert if we provide IDs and user_id
+                const dbBills = updatedWithOrder.map(b => ({
+                    ...mapLocalBillToDb(b, user.id),
+                    id: b.id // Ensure we keep the same ID
+                }));
+
+                const { error } = await supabase
+                    .from('bills')
+                    .upsert(dbBills);
+
+                if (error) throw error;
+            } else {
+                await saveBillsToStorage(updatedWithOrder);
+            }
+        } catch (err) {
+            console.error('Error setting bills/order:', err);
         }
     };
 
-    const resetToDefaults = async () => {
-        setBillsState([]);
-        if (!isSignedIn) {
-            await saveBillsToStorage([]);
-        }
-    };
 
     return (
         <BillContext.Provider value={{
@@ -347,7 +430,6 @@ export function BillProvider({ children }: { children: ReactNode }) {
             setBills,
             refreshBills,
             deletePaymentRecord,
-            resetToDefaults
         }}>
             {children}
         </BillContext.Provider>

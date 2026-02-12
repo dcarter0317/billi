@@ -249,9 +249,33 @@ export default function AddBillScreen() {
     const [saving, setSaving] = useState(false);
 
     const handleSave = async () => {
-        if (!title || !amount) {
-            // Simple validation
+        if (!title.trim()) {
+            Alert.alert('Validation Error', 'Please enter a payee name.');
             return;
+        }
+
+        const parsedAmount = parseFloat(amount);
+        if (isNaN(parsedAmount) || parsedAmount <= 0) {
+            Alert.alert('Validation Error', 'Please enter a valid amount greater than zero.');
+            return;
+        }
+
+        if (isRecurring && dueDays.length === 0) {
+            Alert.alert('Validation Error', 'Please select at least one due day for recurring bills.');
+            return;
+        }
+
+        if (occurrence === 'Installments') {
+            const totalInst = parseInt(totalInstallments);
+            const totalAmt = parseFloat(installmentTotalAmount);
+            if (isNaN(totalInst) || totalInst <= 0) {
+                Alert.alert('Validation Error', 'Please enter total number of installments.');
+                return;
+            }
+            if (isNaN(totalAmt) || totalAmt <= 0) {
+                Alert.alert('Validation Error', 'Please enter total installment amount.');
+                return;
+            }
         }
 
         setSaving(true);

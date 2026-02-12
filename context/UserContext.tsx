@@ -1,6 +1,6 @@
-import React, { createContext, useContext, ReactNode, useEffect } from 'react';
+import React, { createContext, useContext, ReactNode, useEffect, useState } from 'react';
 import { useUser as useClerkUser, useSession } from '@clerk/clerk-expo';
-import { setSupabaseTokenProvider } from '../services/supabase';
+import { setSupabaseTokenProvider, supabase } from '../services/supabase';
 
 interface UserProfile {
     id: string;
@@ -14,6 +14,7 @@ interface UserContextType {
     isLoaded: boolean;
     isSignedIn: boolean | undefined;
     updateUser: (data: { name?: string; email?: string; avatar?: string | null }) => Promise<void>;
+    deleteAccount: () => Promise<void>;
 }
 
 const UserContext = createContext<UserContextType | undefined>(undefined);
@@ -21,12 +22,64 @@ const UserContext = createContext<UserContextType | undefined>(undefined);
 export function UserProvider({ children }: { children: ReactNode }) {
     const { user: clerkUser, isLoaded, isSignedIn } = useClerkUser();
     const { session } = useSession();
+    const [supabaseProfile, setSupabaseProfile] = useState<any>(null);
+
+    // Fetch Supabase profile on load
+    useEffect(() => {
+        if (!clerkUser) {
+            setSupabaseProfile(null);
+            return;
+        }
+
+        const fetchProfile = async () => {
+            try {
+                const { data, error } = await supabase
+                    .from('profiles')
+                    .select('*')
+                    .eq('id', clerkUser.id)
+                    .single();
+
+                if (data) {
+                    setSupabaseProfile(data);
+                } else if (error && error.code !== 'PGRST116') {
+                    console.error('Error fetching profile:', error);
+                }
+            } catch (err) {
+                console.error('Error fetching profile:', err);
+            }
+        };
+
+        fetchProfile();
+    }, [clerkUser]);
 
     const user: UserProfile | null = clerkUser ? {
         id: clerkUser.id,
-        name: clerkUser.fullName || clerkUser.firstName || 'User',
-        email: clerkUser.primaryEmailAddress?.emailAddress || '',
-        avatar: clerkUser.imageUrl || null,
+        name: supabaseProfile?.full_name || clerkUser.fullName || clerkUser.firstName || (() => {
+            // Priority:
+            // 1. Supabase Profile Name (checked above)
+            // 2. Clerk name (checked above)
+            // 3. Email local part if it's NOT a relay email
+            const email = clerkUser.primaryEmailAddress?.emailAddress || '';
+            const [localPart, domain] = email.split('@');
+            if (localPart && domain && !domain.includes('appleid.com')) {
+                return localPart.split(/[\._-]/).map(s => s.charAt(0).toUpperCase() + s.slice(1)).join(' ');
+            }
+            // 4. Last resort fallback
+            return 'User';
+        })(),
+        email: supabaseProfile?.email || (() => {
+            // Priority:
+            // 1. Supabase Profile Email
+            // 2. A verified email that is NOT a relay email (@appleid.com)
+            const nonRelay = clerkUser.emailAddresses.find(e =>
+                e.verification.status === 'verified' && !e.emailAddress.endsWith('.appleid.com')
+            );
+            if (nonRelay) return nonRelay.emailAddress;
+
+            // 3. The primary email address
+            return clerkUser.primaryEmailAddress?.emailAddress || '';
+        })(),
+        avatar: supabaseProfile?.avatar_url || clerkUser.imageUrl || null,
     } : null;
 
     const updateUser = async (data: { name?: string; email?: string; avatar?: string | null }) => {
@@ -39,29 +92,77 @@ export function UserProvider({ children }: { children: ReactNode }) {
             updateData.lastName = nameParts.slice(1).join(' ');
         }
 
-        // Note: Email updates are usually handled via Clerk's verification flow
-        // and might require more than just a simple update call if not using Clerk's UI.
-        // For this implementation, we focus on name and potentially avatar (if handled by Clerk).
-
         try {
+            // 1. Update Clerk
             await clerkUser.update(updateData);
+
+            // 2. Update Supabase
+            const supabaseUpdates: any = {
+                id: clerkUser.id,
+                updated_at: new Date(),
+                email: data.email || clerkUser.primaryEmailAddress?.emailAddress,
+                full_name: data.name || supabaseProfile?.full_name || clerkUser.fullName,
+                avatar_url: data.avatar || supabaseProfile?.avatar_url || clerkUser.imageUrl,
+            };
+
+            const { error } = await supabase.from('profiles').upsert(supabaseUpdates);
+
+            if (error) {
+                console.error('Error updating Supabase profile:', error);
+                throw error;
+            }
+
+            // 3. Update local state
+            setSupabaseProfile((prev: any) => ({
+                ...(prev || {}),
+                ...supabaseUpdates
+            }));
+
         } catch (err) {
             console.error('Error updating user profile:', err);
             throw err;
         }
     };
 
+    const deleteAccount = async () => {
+        if (!clerkUser) return;
+
+        try {
+            // 1. Clear Supabase Data
+            // Transactions first (FK dependency)
+            await supabase.from('transactions').delete().eq('user_id', clerkUser.id);
+            // Bills
+            await supabase.from('bills').delete().eq('user_id', clerkUser.id);
+            // Profile last
+            await supabase.from('profiles').delete().eq('id', clerkUser.id);
+
+            // 2. Delete Clerk Account
+            await clerkUser.delete();
+
+            console.log('[Account Deletion] Successfully wiped Supabase and Clerk data');
+        } catch (err) {
+            console.error('Error during account deletion:', err);
+            throw err;
+        }
+    };
+
+    // Proactively set the token provider as soon as we have a session
+    // This helps prevent race conditions where other contexts try to use Supabase 
+    // before the effect has a chance to run.
+    if (session) {
+        setSupabaseTokenProvider(() => {
+            return session.getToken({ template: 'supabase' });
+        });
+    }
+
     useEffect(() => {
         if (session) {
-            setSupabaseTokenProvider(() => {
-                console.log('[Supabase] Auth: Fetching fresh token for request');
-                return session.getToken({ template: 'supabase' });
-            });
+            console.log('[UserContext] Session detected, token provider ready');
         }
     }, [session]);
 
     return (
-        <UserContext.Provider value={{ user, isLoaded, isSignedIn, updateUser }}>
+        <UserContext.Provider value={{ user, isLoaded, isSignedIn, updateUser, deleteAccount }}>
             {children}
         </UserContext.Provider>
     );

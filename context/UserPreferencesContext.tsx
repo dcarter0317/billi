@@ -58,9 +58,16 @@ export function UserPreferencesProvider({ children }: { children: ReactNode }) {
     // Load preferences on mount or auth change
     useEffect(() => {
         async function loadPreferences() {
+            // Wait for Clerk to resolve if signed in, but don't block forever if not
+            if (isSignedIn && !user) {
+                console.log('[Preferences] Waiting for user object...');
+                return;
+            }
+
             try {
                 // 1. Try cloud if signed in
                 if (isSignedIn && user) {
+                    console.log('[Preferences] Fetching cloud preferences for:', user.id);
                     const { data, error } = await supabase
                         .from('profiles')
                         .select('*')
@@ -69,17 +76,20 @@ export function UserPreferencesProvider({ children }: { children: ReactNode }) {
 
                     if (!error && data) {
                         const cloudPrefs: UserPreferences = {
-                            themeMode: data.theme_mode as any,
-                            notificationsEnabled: data.notifications_enabled,
-                            biometricsEnabled: data.biometrics_enabled,
-                            currency: data.currency,
-                            payPeriodStart: new Date(data.pay_period_start).getTime(),
-                            payPeriodOccurrence: data.pay_period_occurrence as any,
-                            upcomingReminderDays: data.upcoming_warning_window,
+                            themeMode: data.theme_mode as any || 'system',
+                            notificationsEnabled: data.notifications_enabled ?? true,
+                            biometricsEnabled: data.biometrics_enabled ?? false,
+                            currency: data.currency || 'USD',
+                            payPeriodStart: data.pay_period_start ? new Date(data.pay_period_start).getTime() : new Date(2026, 0, 26).getTime(),
+                            payPeriodOccurrence: data.pay_period_occurrence as any || 'bi-weekly',
+                            upcomingReminderDays: data.upcoming_warning_window ?? 2,
                         };
                         setPreferences(cloudPrefs);
                         if (!cloudPrefs.biometricsEnabled) setIsAuthenticated(true);
                         return;
+                    } else if (error && error.code !== 'PGRST116') {
+                        // PGRST116 is "no rows returned", which is expected for new users
+                        console.error('[Preferences] Cloud load error:', error);
                     }
                 }
 
@@ -94,14 +104,29 @@ export function UserPreferencesProvider({ children }: { children: ReactNode }) {
                         setIsAuthenticated(true);
                     }
                 } else {
+                    // Only mark authenticated if no local biometrics preference found
                     setIsAuthenticated(true);
                 }
 
-                // 3. Ensure profile exists in DB if signed in (satisfy FKs)
+                // 3. Sync to Cloud if needed (satisfy FKs)
                 if (isSignedIn && user) {
-                    await supabase.from('profiles').upsert({
+                    const { data: existing } = await supabase
+                        .from('profiles')
+                        .select('email')
+                        .eq('id', user.id)
+                        .single();
+
+                    const currentEmail = user.email;
+                    const dbEmail = existing?.email;
+                    const finalEmail = (dbEmail && !dbEmail.endsWith('.appleid.com') && currentEmail.endsWith('.appleid.com'))
+                        ? dbEmail
+                        : currentEmail;
+
+                    const { error: upsertError } = await supabase.from('profiles').upsert({
                         id: user.id,
-                        email: user.email,
+                        email: finalEmail,
+                        full_name: user.name, // Added for identity sync
+                        avatar_url: user.avatar, // Added for identity sync
                         theme_mode: localOrComputedPrefs.themeMode,
                         notifications_enabled: localOrComputedPrefs.notificationsEnabled,
                         biometrics_enabled: localOrComputedPrefs.biometricsEnabled,
@@ -111,14 +136,16 @@ export function UserPreferencesProvider({ children }: { children: ReactNode }) {
                         upcoming_warning_window: localOrComputedPrefs.upcomingReminderDays,
                         updated_at: new Date().toISOString()
                     });
+
+                    if (upsertError) console.error('[Preferences] Initial upsert error:', upsertError);
                 }
             } catch (e) {
-                console.error('Failed to load preferences', e);
+                console.error('[Preferences] Failed to load preferences', e);
                 setIsAuthenticated(true);
             }
         }
         loadPreferences();
-    }, [isSignedIn, user]);
+    }, [isSignedIn, user?.id]); // Use user.id specifically for better dependency tracking
 
     // Internal utility functions (using function keyword for hoisting safety)
     async function savePrefsHelper(newPrefs: UserPreferences) {
@@ -126,11 +153,24 @@ export function UserPreferencesProvider({ children }: { children: ReactNode }) {
             await setItemAsync(PREFERENCES_KEY, JSON.stringify(newPrefs));
 
             if (isSignedIn && user) {
+                // Fetch existing email to avoid overwriting a real email with a relay one
+                const { data: existing } = await supabase
+                    .from('profiles')
+                    .select('email')
+                    .eq('id', user.id)
+                    .single();
+
+                const dbEmail = existing?.email;
+                const currentEmail = user.email;
+                const finalEmail = (dbEmail && !dbEmail.endsWith('.appleid.com') && currentEmail.endsWith('.appleid.com'))
+                    ? dbEmail
+                    : currentEmail;
+
                 const { error } = await supabase
                     .from('profiles')
                     .upsert({
                         id: user.id,
-                        email: user.email,
+                        email: finalEmail,
                         theme_mode: newPrefs.themeMode,
                         notifications_enabled: newPrefs.notificationsEnabled,
                         biometrics_enabled: newPrefs.biometricsEnabled,

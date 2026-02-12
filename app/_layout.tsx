@@ -15,10 +15,11 @@ import { ClerkProvider, SignedIn, SignedOut } from "@clerk/clerk-expo";
 import { CLERK_PUBLISHABLE_KEY, tokenCache } from "../services/clerk";
 
 import AuthScreen from "../components/AuthScreen";
+import WelcomeScreen from "../components/WelcomeScreen";
 
 function RootLayoutContent() {
     const { preferences, isAuthenticated } = usePreferences();
-    const { isLoaded: userLoaded } = useUser();
+    const { isLoaded: userLoaded, user } = useUser();
     const theme = preferences.isDarkMode ? BilliDarkTheme : BilliLightTheme;
 
     if (!userLoaded) {
@@ -33,37 +34,37 @@ function RootLayoutContent() {
 
     return (
         <PaperProvider theme={theme}>
-            {!isAuthenticated ? (
-                <SecurityLock />
-            ) : (
-                <>
-                    <SignedIn>
-                        <Stack>
-                            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-                            <Stack.Screen
-                                name="add-bill"
-                                options={{
-                                    presentation: 'modal',
-                                    title: 'Add New Bill',
-                                    headerStyle: { backgroundColor: theme.colors.background },
-                                    headerTintColor: theme.colors.primary,
-                                    headerTitleStyle: { color: theme.colors.onSurface }
-                                }}
-                            />
-                            <Stack.Screen
-                                name="profile"
-                                options={{
-                                    presentation: 'modal',
-                                    headerShown: false,
-                                }}
-                            />
-                        </Stack>
-                    </SignedIn>
-                    <SignedOut>
-                        <AuthScreen />
-                    </SignedOut>
-                </>
-            )}
+            <SignedIn>
+                {!isAuthenticated ? (
+                    <SecurityLock />
+                ) : user?.name === 'User' ? (
+                    <WelcomeScreen />
+                ) : (
+                    <Stack>
+                        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+                        <Stack.Screen
+                            name="add-bill"
+                            options={{
+                                presentation: 'modal',
+                                title: 'Add New Bill',
+                                headerStyle: { backgroundColor: theme.colors.background },
+                                headerTintColor: theme.colors.primary,
+                                headerTitleStyle: { color: theme.colors.onSurface }
+                            }}
+                        />
+                        <Stack.Screen
+                            name="profile"
+                            options={{
+                                presentation: 'modal',
+                                headerShown: false,
+                            }}
+                        />
+                    </Stack>
+                )}
+            </SignedIn>
+            <SignedOut>
+                <AuthScreen />
+            </SignedOut>
         </PaperProvider>
     );
 }

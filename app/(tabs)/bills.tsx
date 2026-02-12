@@ -409,7 +409,7 @@ export default function BillsScreen() {
 
                             {filterPeriod === 'monthly' && (
                                 <Text variant="labelSmall" style={styles.helperText}>
-                                    Showing bills for {MONTHS[selectedMonth]} 2026
+                                    Showing bills for {MONTHS[selectedMonth]} {new Date().getFullYear()}
                                 </Text>
                             )}
                             {filteredBills.length === 0 && (

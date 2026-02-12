@@ -32,11 +32,12 @@ export default function SettingsScreen() {
         setCurrency,
         setUpcomingReminderDays
     } = usePreferences();
-    const { user } = useUser();
+    const { user, deleteAccount } = useUser();
     const { signOut } = useAuth();
     const [currencyMenuVisible, setCurrencyMenuVisible] = React.useState(false);
     const [themeMenuVisible, setThemeMenuVisible] = React.useState(false);
     const [reminderMenuVisible, setReminderMenuVisible] = React.useState(false);
+    const [isDeleting, setIsDeleting] = React.useState(false);
 
     const onToggleNotifications = (value: boolean) => {
         toggleNotifications();
@@ -66,10 +67,26 @@ export default function SettingsScreen() {
     const handleDeleteAccount = () => {
         Alert.alert(
             "Delete Account",
-            "This action is permanent and will delete all your data. Are you sure?",
+            "This action is permanent and will delete all your bills, transactions, and profile data. Are you sure?",
             [
                 { text: "Cancel", style: "cancel" },
-                { text: "Delete", style: "destructive", onPress: () => console.log('Account Deleted') }
+                {
+                    text: "Delete",
+                    style: "destructive",
+                    onPress: async () => {
+                        setIsDeleting(true);
+                        try {
+                            await deleteAccount();
+                            // Clerk handles the redirect
+                            Alert.alert("Account Deleted", "Your account and data have been permanently removed.");
+                        } catch (err) {
+                            Alert.alert("Error", "Failed to delete account. Please try again.");
+                            console.error(err);
+                        } finally {
+                            setIsDeleting(false);
+                        }
+                    }
+                }
             ]
         );
     };
@@ -88,7 +105,6 @@ export default function SettingsScreen() {
                         )}
                         <View style={styles.profileInfo}>
                             <Text variant="titleLarge" style={{ fontWeight: 'bold' }}>{user?.name || 'Guest User'}</Text>
-                            <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant }}>{user?.email || 'Sign in to sync your data'}</Text>
                         </View>
                         <ChevronRight size={20} color={theme.colors.onSurfaceVariant} />
                     </TouchableOpacity>
@@ -243,6 +259,8 @@ export default function SettingsScreen() {
                         textColor={theme.colors.error}
                         style={styles.deleteButton}
                         onPress={handleDeleteAccount}
+                        loading={isDeleting}
+                        disabled={isDeleting}
                     >
                         Delete Account
                     </Button>

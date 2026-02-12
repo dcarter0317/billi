@@ -4,6 +4,7 @@ import { Text, TextInput, Button, useTheme, Card, Avatar, Divider } from 'react-
 import { useSignIn, useSignUp, useOAuth } from '@clerk/clerk-expo';
 import { Mail, Lock, User, ArrowRight, Github } from 'lucide-react-native';
 import * as WebBrowser from "expo-web-browser";
+import * as Linking from 'expo-linking';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -25,9 +26,13 @@ export default function AuthScreen() {
     const { signUp, setActive: setSignUpActive, isLoaded: signUpLoaded } = useSignUp();
 
     const { startOAuthFlow: googleAuth } = useOAuth({ strategy: "oauth_google" });
-    const { startOAuthFlow: appleAuth } = useOAuth({ strategy: "oauth_apple" });
+    const { startOAuthFlow: appleAuth } = useOAuth({
+        strategy: "oauth_apple",
+        // @ts-ignore - Valid option for Apple strategy to force scopes
+        additionalScopes: ['email', 'name']
+    });
 
-    const [isSignUp, setIsSignUp] = useState(false);
+    const [isSignUp, setIsSignUp] = useState(true);
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [name, setName] = useState('');
@@ -38,21 +43,35 @@ export default function AuthScreen() {
 
     const onSignInPress = async () => {
         if (!signInLoaded) return;
+        if (!email.trim() || !password.trim()) {
+            setError('Please enter both email and password');
+            return;
+        }
+
         setLoading(true);
         setError(null);
         try {
             const result = await signIn.create({
-                identifier: email,
+                identifier: email.trim(),
                 password,
             });
 
             if (result.status === 'complete') {
                 await setSignInActive({ session: result.createdSessionId });
             } else {
-                console.log(result);
+                // Handling multifactor or other states if needed
+                setError('Login incomplete. Please contact support.');
             }
         } catch (err: any) {
-            setError(err.errors?.[0]?.message || 'Failed to sign in');
+            console.error('[Auth] Sign-in error:', err);
+            const message = err.errors?.[0]?.message || 'Failed to sign in';
+            if (message.toLowerCase().includes('identifier') || message.toLowerCase().includes('not found')) {
+                setError('No account found with this email. Please sign up instead.');
+            } else if (message.toLowerCase().includes('password')) {
+                setError('Incorrect password. Please try again.');
+            } else {
+                setError(message);
+            }
         } finally {
             setLoading(false);
         }
@@ -62,9 +81,10 @@ export default function AuthScreen() {
         setLoading(true);
         setError(null);
         try {
+            const redirectUrl = Linking.createURL('/', { scheme: 'billi' });
             const { createdSessionId, setActive } = strategy === 'google'
-                ? await googleAuth()
-                : await appleAuth();
+                ? await googleAuth({ redirectUrl })
+                : await appleAuth({ redirectUrl });
 
             if (createdSessionId) {
                 setActive!({ session: createdSessionId });
@@ -78,18 +98,24 @@ export default function AuthScreen() {
 
     const onSignUpPress = async () => {
         if (!signUpLoaded) return;
+        if (!email.trim() || !password.trim() || !name.trim()) {
+            setError('All fields are required for sign up');
+            return;
+        }
+
         setLoading(true);
         setError(null);
         try {
             await signUp.create({
-                emailAddress: email,
+                emailAddress: email.trim(),
                 password,
-                firstName: name,
+                firstName: name.trim(),
             });
 
             await signUp.prepareEmailAddressVerification({ strategy: 'email_code' });
             setPendingVerification(true);
         } catch (err: any) {
+            console.error('[Auth] Sign-up error:', err);
             setError(err.errors?.[0]?.message || 'Failed to sign up');
         } finally {
             setLoading(false);
@@ -196,53 +222,26 @@ export default function AuthScreen() {
                     <Card.Content style={styles.cardContent}>
                         {/* Primary Options: Social Login */}
                         <View style={styles.socialButtonsContainer}>
-                            {Platform.OS === 'ios' ? (
-                                <>
-                                    <Button
-                                        mode="contained"
-                                        onPress={() => onOAuthPress('apple')}
-                                        style={[styles.socialButtonLarge, { backgroundColor: '#000000' }]}
-                                        textColor="#ffffff"
-                                        icon={() => <Avatar.Icon size={24} icon="apple" color="#ffffff" style={{ backgroundColor: 'transparent' }} />}
-                                        contentStyle={styles.socialButtonContent}
-                                    >
-                                        Continue with Apple
-                                    </Button>
-                                    <Button
-                                        mode="contained"
-                                        onPress={() => onOAuthPress('google')}
-                                        style={[styles.socialButtonLarge, { backgroundColor: '#ffffff' }]}
-                                        textColor="#000000"
-                                        icon={() => <Avatar.Icon size={24} icon="google" color="#DB4437" style={{ backgroundColor: 'transparent' }} />}
-                                        contentStyle={styles.socialButtonContent}
-                                    >
-                                        Continue with Google
-                                    </Button>
-                                </>
-                            ) : (
-                                <>
-                                    <Button
-                                        mode="contained"
-                                        onPress={() => onOAuthPress('google')}
-                                        style={[styles.socialButtonLarge, { backgroundColor: '#ffffff' }]}
-                                        textColor="#000000"
-                                        icon={() => <Avatar.Icon size={24} icon="google" color="#DB4437" style={{ backgroundColor: 'transparent' }} />}
-                                        contentStyle={styles.socialButtonContent}
-                                    >
-                                        Continue with Google
-                                    </Button>
-                                    <Button
-                                        mode="contained"
-                                        onPress={() => onOAuthPress('apple')}
-                                        style={[styles.socialButtonLarge, { backgroundColor: '#000000' }]}
-                                        textColor="#ffffff"
-                                        icon={() => <Avatar.Icon size={24} icon="apple" color="#ffffff" style={{ backgroundColor: 'transparent' }} />}
-                                        contentStyle={styles.socialButtonContent}
-                                    >
-                                        Continue with Apple
-                                    </Button>
-                                </>
-                            )}
+                            <Button
+                                mode="contained"
+                                onPress={() => onOAuthPress('google')}
+                                style={[styles.socialButtonLarge, { backgroundColor: '#ffffff' }]}
+                                textColor="#000000"
+                                icon={() => <Avatar.Icon size={24} icon="google" color="#DB4437" style={{ backgroundColor: 'transparent' }} />}
+                                contentStyle={styles.socialButtonContent}
+                            >
+                                Google
+                            </Button>
+                            <Button
+                                mode="contained"
+                                onPress={() => onOAuthPress('apple')}
+                                style={[styles.socialButtonLarge, { backgroundColor: '#000000' }]}
+                                textColor="#ffffff"
+                                icon={() => <Avatar.Icon size={24} icon="apple" color="#ffffff" style={{ backgroundColor: 'transparent' }} />}
+                                contentStyle={styles.socialButtonContent}
+                            >
+                                Apple
+                            </Button>
                         </View>
 
                         <View style={styles.emailDividerContainer}>
@@ -298,11 +297,11 @@ export default function AuthScreen() {
                             mode="contained"
                             onPress={isSignUp ? onSignUpPress : onSignInPress}
                             loading={loading}
-                            style={styles.button}
+                            style={[styles.button, { backgroundColor: isSignUp ? theme.colors.primary : theme.colors.secondary }]}
                             contentStyle={styles.buttonContent}
                             labelStyle={styles.buttonLabel}
                         >
-                            {isSignUp ? 'Create Account' : 'Sign In'}
+                            {isSignUp ? 'Create My Account' : 'Sign In to Billi'}
                         </Button>
 
                         <View style={styles.footer}>
@@ -383,11 +382,13 @@ const styles = StyleSheet.create({
         fontWeight: 'bold',
     },
     socialButtonsContainer: {
+        flexDirection: 'row',
         gap: 12,
         marginBottom: 24,
         marginTop: 8,
     },
     socialButtonLarge: {
+        flex: 1,
         borderRadius: 16,
         elevation: 0,
         height: 56,
@@ -395,7 +396,7 @@ const styles = StyleSheet.create({
     },
     socialButtonContent: {
         height: 56,
-        flexDirection: 'row-reverse', // Icons look better on the right or just centered
+        // Centered content
     },
     emailDividerContainer: {
         flexDirection: 'row',

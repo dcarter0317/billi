@@ -6,16 +6,23 @@ export const MONTHS = [
 ];
 
 // Data format: MM-DD-YYYY
-export const parseDate = (dateStr: string): Date => {
-    if (!dateStr) return new Date();
-    const parts = dateStr.split('-');
-    if (parts.length !== 3) return new Date();
+// Data format: MM-DD-YYYY or ISO string or Date object
+export const parseDate = (date: any): Date => {
+    if (!date) return new Date();
+    if (date instanceof Date) return date;
 
-    const [month, day, year] = parts.map(Number);
-    // Basic validation
-    if (isNaN(month) || isNaN(day) || isNaN(year)) return new Date();
+    // Try MM-DD-YYYY first
+    const parts = String(date).split('-');
+    if (parts.length === 3) {
+        const [month, day, year] = parts.map(Number);
+        if (!isNaN(month) && !isNaN(day) && !isNaN(year)) {
+            return new Date(year, month - 1, day);
+        }
+    }
 
-    return new Date(year, month - 1, day);
+    // Fallback to native Date parser (handles ISO, common strings)
+    const parsed = new Date(date);
+    return isNaN(parsed.getTime()) ? new Date() : parsed;
 };
 
 export const formatDate = (date: Date): string => {
@@ -27,93 +34,107 @@ export const formatDate = (date: Date): string => {
 };
 
 export const getPayPeriodInterval = (
-    startAnchor: number,
+    startAnchor: any,
     frequency: 'weekly' | 'bi-weekly' | 'monthly',
     offset = 0
 ) => {
-    const anchorDate = new Date(startAnchor);
-    // Fallback if anchor is invalid
-    if (isNaN(anchorDate.getTime())) {
-        const now = new Date();
-        return { start: now, end: now };
-    }
-
+    const anchorDate = parseDate(startAnchor);
     const now = new Date();
 
-    // Calculate days since anchor
-    const diffTime = now.getTime() - anchorDate.getTime();
-    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-
-    let periodLengthDays = 14; // Default bi-weekly
-    if (frequency === 'weekly') periodLengthDays = 7;
     if (frequency === 'monthly') {
-        // Monthly logic
-        const targetDate = new Date(now.getFullYear(), now.getMonth() + offset, 1);
+        const anchorDay = anchorDate.getDate();
+        let targetMonth = now.getMonth() + offset;
+        let targetYear = now.getFullYear();
 
-        // Start date: anchor day in target month
-        const start = new Date(targetDate.getFullYear(), targetDate.getMonth(), anchorDate.getDate());
-
-        // Handle month wrapping issues (e.g. Feb 30 -> Mar 2)
-        // If the month of 'start' is different than 'targetDate', it means we overflowed.
-        // Clamp to the last day of the target month.
-        if (start.getMonth() !== targetDate.getMonth()) {
-            start.setDate(0); // This sets it to the last day of the previous month (relative to overflow), i.e. correct month end
+        // If today is BEFORE the anchor day, the "current" (offset 0) period 
+        // actually started last month.
+        if (offset === 0 && now.getDate() < anchorDay) {
+            targetMonth -= 1;
         }
 
-        const end = new Date(start);
-        end.setMonth(start.getMonth() + 1);
-        // Correct end date calculation: same day next month, then minus 1 day
-        // But we need to handle if next month doesn't have that day too.
-        // Actually, pay period is usually "Start Date to Start Date - 1 day".
-        // Let's use simpler logic: 
-        // End is Start + 1 Month - 1 Day. 
-
-        // Re-calculate end carefully
-        const nextMonthStart = new Date(start);
-        nextMonthStart.setMonth(start.getMonth() + 1);
-        if (nextMonthStart.getDate() !== start.getDate()) {
-            // Overflowed again (e.g. Jan 31 + 1 Month -> Feb 28/29)
-            nextMonthStart.setDate(0);
+        const start = new Date(targetYear, targetMonth, anchorDay);
+        // Correct for month overflow (e.g. anchor 31 in Feb)
+        if (start.getDate() !== anchorDay) {
+            start.setDate(0);
         }
 
-        end.setTime(nextMonthStart.getTime() - (24 * 60 * 60 * 1000)); // Subtract one day
+        const end = new Date(start.getFullYear(), start.getMonth() + 1, start.getDate());
+        if (end.getDate() !== start.getDate()) {
+            end.setDate(0);
+        }
+        // End is technically the day before the next period starts
+        end.setDate(end.getDate() - 1);
+        end.setHours(23, 59, 59, 999);
 
         return { start, end };
     }
 
-    const periodsPassed = Math.floor(diffDays / periodLengthDays) + offset;
+    // Weekly / Bi-weekly logic
+    let periodLengthDays = frequency === 'weekly' ? 7 : 14;
+
+    // Find how many periods between anchor and now
+    const diffTime = now.getTime() - anchorDate.getTime();
+    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+
+    // Determine the start of the "current" (offset 0) period
+    let periodsPassed = Math.floor(diffDays / periodLengthDays);
+
+    // Total periods including offset
+    const totalOffsetPeriods = periodsPassed + offset;
 
     const start = new Date(anchorDate);
-    start.setDate(anchorDate.getDate() + (periodsPassed * periodLengthDays));
+    start.setDate(anchorDate.getDate() + (totalOffsetPeriods * periodLengthDays));
+    start.setHours(0, 0, 0, 0);
 
     const end = new Date(start);
     end.setDate(start.getDate() + periodLengthDays - 1);
+    end.setHours(23, 59, 59, 999);
 
     return { start, end };
 };
 
 
 export const getDisplayDate = (bill: Bill, filterPeriod: string, selectedMonth: number): string => {
+    const billDate = parseDate(bill.dueDate);
     if (!bill.isRecurring) return bill.dueDate;
 
-    const billDate = parseDate(bill.dueDate);
     const today = new Date();
     const currentYear = today.getFullYear();
 
+    // Helper to project a date into the neighborhood of a target date
+    const projectDate = (baseDate: Date, targetDate: Date) => {
+        const result = new Date(baseDate);
+        result.setFullYear(targetDate.getFullYear());
+        result.setMonth(targetDate.getMonth());
+        // Handle month overflow
+        if (result.getMonth() !== targetDate.getMonth()) {
+            result.setDate(0);
+        }
+        return result;
+    };
+
+    // 1. Monthly projection
     if (filterPeriod === 'monthly' && selectedMonth !== -1) {
-        // Project to the selected month if it's in the future
-        if (selectedMonth > billDate.getMonth() || billDate.getFullYear() < currentYear) {
-            const projectedDate = new Date(currentYear, selectedMonth, billDate.getDate());
-            // Handle month overflow (e.g., Feb 30)
-            if (projectedDate.getMonth() !== selectedMonth) {
-                projectedDate.setDate(0);
-            }
-            return formatDate(projectedDate);
+        const target = new Date(currentYear, selectedMonth, 1);
+        return formatDate(projectDate(billDate, target));
+    }
+
+    // 2. Interval projection (Last/This/Next period)
+    const isInterval = ['last', 'this', 'next'].includes(filterPeriod);
+    if (isInterval) {
+        // If it's recurring, projecting into a pay period interval is tricky 
+        // because a bill might occur multiple times or not at all depending on frequency.
+        // For now, if the filter is "Next Pay Period", show the next likely occurrence.
+        if (filterPeriod === 'next' && bill.isRecurring) {
+            // Very simple advancement for display
+            const next = new Date(billDate);
+            if (bill.occurrence === 'Every Week') next.setDate(next.getDate() + 7);
+            else if (bill.occurrence === 'Every Other Week') next.setDate(next.getDate() + 14);
+            else next.setMonth(next.getMonth() + 1);
+            return formatDate(next);
         }
     }
 
-    // For other periods (Weekly, Bi-weekly), we could add more complex projection logic here
-    // For now, returning the base due date if not a monthly projection
     return bill.dueDate;
 };
 
@@ -138,16 +159,17 @@ export const getBillAlertStatus = (dueDateStr: string, bufferDays: number): 'ove
 };
 
 export const getBillStatusColor = (bill: Bill, theme: any) => {
-    if (bill.isPaid) {
-        return theme.dark ? theme.colors.success : '#1B5E20'; // Darker Green in light mode
+    if (bill.isPaid || bill.isCleared) {
+        return theme.dark ? theme.colors.success : '#1B5E20';
     }
     const today = new Date();
     const dueDate = parseDate(bill.dueDate);
     const diffTime = dueDate.getTime() - today.getTime();
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
+    if (diffDays <= 0) return theme.colors.error;
     if (diffDays <= 2) {
-        return theme.dark ? theme.colors.error : '#B71C1C'; // Darker Red in light mode
+        return theme.dark ? theme.colors.error : '#B71C1C';
     }
-    return theme.dark ? (theme.colors as any).warning : '#E65100'; // Darker Amber/Orange in light mode
+    return theme.dark ? (theme.colors as any).warning : '#E65100';
 };
