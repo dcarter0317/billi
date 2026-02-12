@@ -1,14 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { View, StyleSheet, ScrollView, TouchableOpacity, Alert, Platform } from 'react-native';
-import { Text, TextInput, Button, Avatar, useTheme, Switch, List, Menu, Divider, PaperProvider } from 'react-native-paper';
+import { Text, TextInput, Button, Avatar, useTheme, Switch, List, Menu, PaperProvider } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
-import DateTimePicker from '@react-native-community/datetimepicker';
 import { useUser } from '../context/UserContext';
 import { usePreferences } from '../context/UserPreferencesContext';
-import { useBills } from '../context/BillContext';
 import { Camera } from 'lucide-react-native';
+import PayPeriodSettings from '../components/PayPeriodSettings';
 
 export default function ProfileScreen() {
     const theme = useTheme();
@@ -20,8 +19,6 @@ export default function ProfileScreen() {
         toggleNotifications,
         toggleBiometrics,
         setCurrency,
-        setPayPeriodStart,
-        setPayPeriodOccurrence
     } = usePreferences();
 
     const [name, setName] = useState(user?.name || '');
@@ -29,8 +26,6 @@ export default function ProfileScreen() {
     const [isSaving, setIsSaving] = useState(false);
     const [isDeleting, setIsDeleting] = useState(false);
     const [currencyMenuVisible, setCurrencyMenuVisible] = useState(false);
-    const [frequencyMenuVisible, setFrequencyMenuVisible] = useState(false);
-    const [showDatePicker, setShowDatePicker] = useState(false);
 
     useEffect(() => {
         if (user) {
@@ -156,62 +151,7 @@ export default function ProfileScreen() {
 
                     <View style={styles.divider} />
 
-                    <Text variant="titleMedium" style={[styles.sectionTitle, { color: theme.colors.onSurfaceVariant }]}>Pay Period Settings</Text>
-
-                    <View style={[styles.settingItem, { borderBottomColor: theme.colors.outlineVariant }]}>
-                        <Text variant="bodyLarge">Start Date</Text>
-                        {Platform.OS === 'android' ? (
-                            <Button
-                                mode="outlined"
-                                onPress={() => setShowDatePicker(true)}
-                                textColor={theme.colors.primary}
-                            >
-                                {new Date(preferences.payPeriodStart).toLocaleDateString()}
-                            </Button>
-                        ) : (
-                            <DateTimePicker
-                                value={new Date(preferences.payPeriodStart)}
-                                mode="date"
-                                display="default"
-                                onChange={(event, selectedDate) => {
-                                    if (selectedDate) setPayPeriodStart(selectedDate);
-                                }}
-                                themeVariant={preferences.isDarkMode ? 'dark' : 'light'}
-                            />
-                        )}
-                    </View>
-
-                    {Platform.OS === 'android' && showDatePicker && (
-                        <DateTimePicker
-                            value={new Date(preferences.payPeriodStart)}
-                            mode="date"
-                            display="default"
-                            onChange={(event, selectedDate) => {
-                                setShowDatePicker(false);
-                                if (selectedDate) setPayPeriodStart(selectedDate);
-                            }}
-                        />
-                    )}
-
-                    <Menu
-                        visible={frequencyMenuVisible}
-                        onDismiss={() => setFrequencyMenuVisible(false)}
-                        anchor={
-                            <List.Item
-                                title="Frequency"
-                                titleStyle={{ fontSize: 16 }}
-                                description={preferences.payPeriodOccurrence}
-                                descriptionStyle={{ textTransform: 'capitalize', color: theme.colors.primary }}
-                                onPress={() => setFrequencyMenuVisible(true)}
-                                right={props => <List.Icon {...props} icon="chevron-right" />}
-                                style={[styles.settingItem, { paddingVertical: 8, paddingHorizontal: 0 }]}
-                            />
-                        }
-                    >
-                        <Menu.Item onPress={() => { setPayPeriodOccurrence('weekly'); setFrequencyMenuVisible(false); }} title="Weekly" />
-                        <Menu.Item onPress={() => { setPayPeriodOccurrence('bi-weekly'); setFrequencyMenuVisible(false); }} title="Bi-Weekly" />
-                        <Menu.Item onPress={() => { setPayPeriodOccurrence('monthly'); setFrequencyMenuVisible(false); }} title="Monthly" />
-                    </Menu>
+                    <PayPeriodSettings />
 
                     <View style={styles.divider} />
 

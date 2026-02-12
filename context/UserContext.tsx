@@ -22,7 +22,16 @@ const UserContext = createContext<UserContextType | undefined>(undefined);
 export function UserProvider({ children }: { children: ReactNode }) {
     const { user: clerkUser, isLoaded, isSignedIn } = useClerkUser();
     const { session } = useSession();
-    const [supabaseProfile, setSupabaseProfile] = useState<any>(null);
+    // Define strict type for Supabase profile
+    interface SupabaseProfile {
+        id: string;
+        email: string;
+        full_name: string | null;
+        avatar_url: string | null;
+        updated_at: string;
+    }
+
+    const [supabaseProfile, setSupabaseProfile] = useState<SupabaseProfile | null>(null);
 
     // Fetch Supabase profile on load
     useEffect(() => {
@@ -40,7 +49,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
                     .single();
 
                 if (data) {
-                    setSupabaseProfile(data);
+                    setSupabaseProfile(data as SupabaseProfile);
                 } else if (error && error.code !== 'PGRST116') {
                     console.error('Error fetching profile:', error);
                 }
@@ -85,7 +94,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
     const updateUser = async (data: { name?: string; email?: string; avatar?: string | null }) => {
         if (!clerkUser) return;
 
-        const updateData: any = {};
+        const updateData: { firstName?: string; lastName?: string } = {};
         if (data.name) {
             const nameParts = data.name.trim().split(/\s+/);
             updateData.firstName = nameParts[0];
@@ -94,15 +103,17 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
         try {
             // 1. Update Clerk
-            await clerkUser.update(updateData);
+            if (Object.keys(updateData).length > 0) {
+                await clerkUser.update(updateData);
+            }
 
             // 2. Update Supabase
-            const supabaseUpdates: any = {
+            const supabaseUpdates: Partial<SupabaseProfile> & { id: string; updated_at: string } = {
                 id: clerkUser.id,
-                updated_at: new Date(),
-                email: data.email || clerkUser.primaryEmailAddress?.emailAddress,
-                full_name: data.name || supabaseProfile?.full_name || clerkUser.fullName,
-                avatar_url: data.avatar || supabaseProfile?.avatar_url || clerkUser.imageUrl,
+                updated_at: new Date().toISOString(),
+                email: data.email || clerkUser.primaryEmailAddress?.emailAddress || '',
+                full_name: data.name || supabaseProfile?.full_name || clerkUser.fullName || null,
+                avatar_url: data.avatar || supabaseProfile?.avatar_url || clerkUser.imageUrl || null,
             };
 
             const { error } = await supabase.from('profiles').upsert(supabaseUpdates);
@@ -113,9 +124,10 @@ export function UserProvider({ children }: { children: ReactNode }) {
             }
 
             // 3. Update local state
-            setSupabaseProfile((prev: any) => ({
-                ...(prev || {}),
-                ...supabaseUpdates
+            setSupabaseProfile((prev) => ({
+                ...(prev || { id: clerkUser.id, email: '', full_name: null, avatar_url: null, updated_at: new Date().toISOString() }),
+                ...supabaseUpdates,
+                updated_at: supabaseUpdates.updated_at
             }));
 
         } catch (err) {

@@ -63,7 +63,26 @@ export function BillProvider({ children }: { children: ReactNode }) {
 
     const { user, isSignedIn } = useUser();
 
-    const mapDbBillToLocal = (dbBill: any): Bill => ({
+    interface DbBill {
+        id: string;
+        user_id: string;
+        title: string;
+        amount: number;
+        due_date: string;
+        is_paid: boolean;
+        is_cleared: boolean;
+        cleared_date: string | null;
+        category: string;
+        order: number;
+        occurrence: string;
+        due_days: number[] | null;
+        total_installments: number | null;
+        paid_installments: number | null;
+        is_recurring: boolean;
+        notes: string | null;
+    }
+
+    const mapDbBillToLocal = (dbBill: DbBill): Bill => ({
         id: dbBill.id,
         title: dbBill.title,
         amount: dbBill.amount?.toString() || '0.00',
@@ -73,7 +92,7 @@ export function BillProvider({ children }: { children: ReactNode }) {
         clearedDate: dbBill.cleared_date || undefined,
         category: dbBill.category,
         order: dbBill.order || 0,
-        occurrence: dbBill.occurrence || 'Every Month',
+        occurrence: (dbBill.occurrence as Bill['occurrence']) || 'Every Month',
         dueDays: dbBill.due_days || [],
         totalInstallments: dbBill.total_installments ?? undefined,
         paidInstallments: dbBill.paid_installments ?? undefined,
@@ -81,7 +100,7 @@ export function BillProvider({ children }: { children: ReactNode }) {
         notes: dbBill.notes || ''
     });
 
-    const mapLocalBillToDb = (bill: Partial<Bill>, userId: string) => {
+    const mapLocalBillToDb = (bill: Partial<Bill>, userId: string): Partial<DbBill> => {
         const db: any = { user_id: userId };
         if (bill.title !== undefined) db.title = bill.title;
         if (bill.amount !== undefined) db.amount = parseFloat(bill.amount);

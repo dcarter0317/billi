@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { View, ScrollView, StyleSheet, TouchableOpacity, Alert } from 'react-native';
+import { View, ScrollView, StyleSheet, TouchableOpacity } from 'react-native';
 import { ChevronRight } from 'lucide-react-native';
 import { Text, Card, useTheme, Button, Avatar, Menu, Divider, Searchbar, IconButton } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -7,9 +7,11 @@ import { useRouter } from 'expo-router';
 import { useUser } from '../../context/UserContext';
 import { useBills, Bill } from '../../context/BillContext';
 import { usePreferences } from '../../context/UserPreferencesContext';
-import { MONTHS, parseDate, getPayPeriodInterval, getBillStatusColor, getDisplayDate, getBillAlertStatus } from '../../utils/date';
+import { MONTHS, parseDate, getPayPeriodInterval } from '../../utils/date';
 import { supabase } from '../../services/supabase';
 import { useFocusEffect } from '@react-navigation/native';
+import { CATEGORIES, CATEGORY_ICONS } from '../../constants/categories';
+import BillCard from '../../components/BillCard';
 
 export interface Transaction {
     id: string;
@@ -22,54 +24,6 @@ export interface Transaction {
     settlement_type: 'PAID' | 'CLEARED';
     notes?: string;
 }
-
-const CATEGORIES = [
-    'Housing',
-    'Utilities',
-    'Food & Dining',
-    'Transportation',
-    'Entertainment',
-    'Health & Fitness',
-    'Shopping',
-    'Insurance',
-    'Personal Care',
-    'Education',
-    'Subscriptions',
-    'Investments',
-    'Debt & Loans',
-    'Credit Card',
-    'Student Loan',
-    'Gifts & Donations',
-    'Taxes',
-    'Travel',
-    'Pets',
-    'Other',
-    'Custom'
-];
-
-const CATEGORY_ICONS: Record<string, string> = {
-    'Housing': 'home',
-    'Utilities': 'flash',
-    'Food & Dining': 'silverware-fork-knife',
-    'Transportation': 'car',
-    'Entertainment': 'movie',
-    'Health & Fitness': 'heart-pulse',
-    'Shopping': 'shopping',
-    'Insurance': 'shield-check',
-    'Personal Care': 'face-man',
-    'Education': 'school',
-    'Subscriptions': 'calendar-refresh',
-    'Investments': 'trending-up',
-    'Debt & Loans': 'bank',
-    'Credit Card': 'credit-card',
-    'Student Loan': 'school',
-    'Gifts & Donations': 'gift',
-    'Taxes': 'file-document-outline',
-    'Travel': 'airplane',
-    'Pets': 'paw',
-    'Other': 'dots-horizontal',
-    'Custom': 'star'
-};
 
 export default function HomeScreen() {
     const theme = useTheme();
@@ -437,83 +391,14 @@ export default function HomeScreen() {
 
                 {
                     upcomingBills.length > 0 ? upcomingBills.map((bill: Bill) => (
-                        <Card key={bill.id} style={styles.billCard}>
-                            <Card.Title
-                                title={
-                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                                        <Text variant="titleMedium" style={{ fontWeight: 'bold' }}>{bill.title}</Text>
-                                        {(() => {
-                                            const alertStatus = getBillAlertStatus(bill.dueDate, preferences.upcomingReminderDays);
-                                            if (alertStatus === 'none' || bill.isPaid || bill.isCleared) return null;
-
-                                            const today = new Date();
-                                            today.setHours(0, 0, 0, 0);
-                                            const dueDate = parseDate(bill.dueDate);
-                                            dueDate.setHours(0, 0, 0, 0);
-                                            const diffDays = Math.floor((dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-
-                                            return (
-                                                <View style={[
-                                                    styles.alertBadge,
-                                                    { backgroundColor: alertStatus === 'overdue' ? 'rgba(211, 47, 47, 0.1)' : 'rgba(245, 124, 0, 0.1)' }
-                                                ]}>
-                                                    <Text variant="labelSmall" style={[
-                                                        styles.alertText,
-                                                        { color: alertStatus === 'overdue' ? '#D32F2F' : '#F57C00' }
-                                                    ]}>
-                                                        {alertStatus === 'overdue' ? 'OVERDUE' : `DUE IN ${diffDays} ${diffDays === 1 ? 'DAY' : 'DAYS'}`}
-                                                    </Text>
-                                                </View>
-                                            );
-                                        })()}
-                                    </View>
-                                }
-                                subtitle={
-                                    <View>
-                                        <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
-                                            Due {parseDate(getDisplayDate(bill, filterPeriod, selectedMonth)).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
-                                            {bill.occurrence === 'Installments' && bill.paymentHistory && bill.paymentHistory.length > 0 && (
-                                                <Text style={{ color: (theme.colors as any).success || theme.colors.primary }}>
-                                                    {' • '}Last paid: {bill.paymentHistory[bill.paymentHistory.length - 1].date}
-                                                </Text>
-                                            )}
-                                        </Text>
-                                        <View style={[styles.categoryBadge, { flexDirection: 'row', alignItems: 'center', gap: 6 }]}>
-                                            <Text
-                                                variant="labelSmall"
-                                                style={[
-                                                    styles.categoryText,
-                                                    { color: getBillStatusColor(bill, theme) }
-                                                ]}
-                                            >
-                                                {bill.category}
-                                            </Text>
-                                            {bill.occurrence === 'Installments' && bill.totalInstallments && (
-                                                <>
-                                                    <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: theme.colors.onSurfaceVariant, opacity: 0.3 }} />
-                                                    <Text variant="labelSmall" style={{ color: theme.colors.primary, fontWeight: 'bold' }}>
-                                                        {bill.paidInstallments || 0} of {bill.totalInstallments} payments made
-                                                    </Text>
-                                                </>
-                                            )}
-                                        </View>
-                                    </View>
-                                }
-                                left={(props) => (
-                                    <Avatar.Icon
-                                        {...props}
-                                        icon={CATEGORY_ICONS[bill.category as keyof typeof CATEGORY_ICONS] || 'star'}
-                                        style={{ backgroundColor: ['Housing', 'Utilities', 'Transportation'].includes(bill.category) ? theme.colors.primary : theme.colors.surfaceVariant }}
-                                        color={['Housing', 'Utilities', 'Transportation'].includes(bill.category) ? theme.colors.onPrimary : theme.colors.onSurfaceVariant}
-                                    />
-                                )}
-                                right={(props) => (
-                                    <Text variant="titleMedium" style={{ marginRight: 16 }}>
-                                        {currencySymbol}{bill.amount}
-                                    </Text>
-                                )}
-                            />
-                        </Card>
+                        <BillCard
+                            key={bill.id}
+                            bill={bill}
+                            filterPeriod={filterPeriod}
+                            selectedMonth={selectedMonth}
+                            upcomingReminderDays={preferences.upcomingReminderDays}
+                            currencySymbol={currencySymbol}
+                        />
                     )) : (
                         <View style={styles.emptyContainer}>
                             <IconButton icon="calendar-check" size={48} iconColor={theme.colors.onSurfaceVariant} style={{ opacity: 0.5 }} />
@@ -594,7 +479,7 @@ const styles = StyleSheet.create({
         marginTop: 12,
     },
     profileWarningCard: {
-        marginBottom: 12, // Reduced margin below to make balance card closer if present
+        marginBottom: 12,
         borderRadius: 16,
         elevation: 0,
     },
@@ -667,16 +552,6 @@ const styles = StyleSheet.create({
         textTransform: 'uppercase',
         letterSpacing: 0.5,
         fontWeight: 'bold',
-    },
-    alertBadge: {
-        paddingHorizontal: 8,
-        paddingVertical: 2,
-        borderRadius: 4,
-    },
-    alertText: {
-        fontSize: 10,
-        fontWeight: 'bold',
-        textTransform: 'uppercase',
     },
     emptyContainer: {
         padding: 24,
