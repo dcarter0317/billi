@@ -354,9 +354,12 @@ export function BillProvider({ children }: { children: ReactNode }) {
                     }
                 }
 
-                updates.dueDate = formatDate(nextDueDate);
-                updates.isPaid = false;
-                updates.isCleared = false;
+                // Only update if we successfully calculated a new date
+                if (nextDueDate.getTime() !== currentDueDate.getTime()) {
+                    updates.dueDate = formatDate(nextDueDate);
+                    updates.isPaid = false;
+                    updates.isCleared = false;
+                }
             }
         } else {
             updates.clearedDate = undefined;
