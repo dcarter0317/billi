@@ -90,10 +90,10 @@ export default function HistoryScreen() {
     const currencySymbol = preferences.currency === 'EUR' ? '€' : '$';
 
     const intervals = useMemo(() => ({
-        last: getPayPeriodInterval(preferences.payPeriodStart, preferences.payPeriodOccurrence, -1),
-        this: getPayPeriodInterval(preferences.payPeriodStart, preferences.payPeriodOccurrence, 0),
-        next: getPayPeriodInterval(preferences.payPeriodStart, preferences.payPeriodOccurrence, 1),
-    }), [preferences.payPeriodStart, preferences.payPeriodOccurrence]);
+        last: getPayPeriodInterval(preferences.payPeriodStart, preferences.payPeriodOccurrence, -1, preferences.payPeriodSemiMonthlyDays),
+        this: getPayPeriodInterval(preferences.payPeriodStart, preferences.payPeriodOccurrence, 0, preferences.payPeriodSemiMonthlyDays),
+        next: getPayPeriodInterval(preferences.payPeriodStart, preferences.payPeriodOccurrence, 1, preferences.payPeriodSemiMonthlyDays),
+    }), [preferences.payPeriodStart, preferences.payPeriodOccurrence, preferences.payPeriodSemiMonthlyDays]);
 
     const fetchTransactions = async () => {
         if (!isSignedIn || !user) return;

@@ -46,10 +46,10 @@ export default function HomeScreen() {
     const [loadingTransactions, setLoadingTransactions] = useState(false);
 
     const intervals = useMemo(() => ({
-        last: getPayPeriodInterval(preferences.payPeriodStart, preferences.payPeriodOccurrence, -1),
-        this: getPayPeriodInterval(preferences.payPeriodStart, preferences.payPeriodOccurrence, 0),
-        next: getPayPeriodInterval(preferences.payPeriodStart, preferences.payPeriodOccurrence, 1),
-    }), [preferences.payPeriodStart, preferences.payPeriodOccurrence]);
+        last: getPayPeriodInterval(preferences.payPeriodStart, preferences.payPeriodOccurrence, -1, preferences.payPeriodSemiMonthlyDays),
+        this: getPayPeriodInterval(preferences.payPeriodStart, preferences.payPeriodOccurrence, 0, preferences.payPeriodSemiMonthlyDays),
+        next: getPayPeriodInterval(preferences.payPeriodStart, preferences.payPeriodOccurrence, 1, preferences.payPeriodSemiMonthlyDays),
+    }), [preferences.payPeriodStart, preferences.payPeriodOccurrence, preferences.payPeriodSemiMonthlyDays]);
 
     const fetchTransactions = async () => {
         if (!user) return;
@@ -165,12 +165,7 @@ export default function HomeScreen() {
                         <Text variant="headlineMedium" style={{ fontWeight: 'bold' }}>{user?.name?.split(' ')[0] || 'User'}</Text>
                     </View>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                        <IconButton
-                            icon="plus-circle"
-                            size={32}
-                            iconColor={theme.colors.primary}
-                            onPress={() => router.push('/add-bill')}
-                        />
+
                         <TouchableOpacity onPress={() => router.push('/profile')}>
                             <Avatar.Image size={48} source={{ uri: user?.avatar || 'https://i.pravatar.cc/150?img=12' }} />
                         </TouchableOpacity>

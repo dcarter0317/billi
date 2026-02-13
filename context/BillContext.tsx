@@ -368,6 +368,13 @@ export function BillProvider({ children }: { children: ReactNode }) {
                         case 'Twice a Week':
                             nextDueDate.setDate(currentDueDate.getDate() + 3);
                             break;
+                        case 'Installments':
+                            if (bill.installmentRecurrence === 'bi-weekly') {
+                                nextDueDate.setDate(currentDueDate.getDate() + 14);
+                            } else {
+                                nextDueDate.setMonth(currentDueDate.getMonth() + 1);
+                            }
+                            break;
                         default:
                             nextDueDate.setMonth(currentDueDate.getMonth() + 1);
                     }

@@ -35,11 +35,185 @@ export const formatDate = (date: Date): string => {
 
 export const getPayPeriodInterval = (
     startAnchor: any,
-    frequency: 'weekly' | 'bi-weekly' | 'monthly',
-    offset = 0
+    frequency: 'weekly' | 'bi-weekly' | 'monthly' | 'semi-monthly',
+    offset = 0,
+    semiMonthlyDays: [number, number] = [15, 30] // Default fallback
 ) => {
     const anchorDate = parseDate(startAnchor);
     const now = new Date();
+    // Normalize now
+    now.setHours(0, 0, 0, 0);
+
+    if (frequency === 'semi-monthly') {
+        // 1. Sort the two days just in case
+        const days = [...semiMonthlyDays].sort((a, b) => a - b);
+        const [d1, d2] = days;
+
+        // 2. Identify all possible start dates around "now" to find the current one (offset=0)
+        // Candidates:
+        // - PrevMonth.d2
+        // - CurrMonth.d1
+        // - CurrMonth.d2
+        // - NextMonth.d1
+        const currentYear = now.getFullYear();
+        const currentMonth = now.getMonth();
+
+        // Helper to safely create date (handling variable days like 30, 31)
+        const makeDate = (year: number, month: number, day: number) => {
+            const d = new Date(year, month, day);
+            // If valid day (e.g. Feb 30 -> Mar 2), we want to clamp or wrap?
+            // "Paycheck on 30th" usually means "Last day of month" if month < 30 days.
+            // For simplicity, let's clamp to last day of month if overflow.
+            const lastDayOfTargetMonth = new Date(year, month + 1, 0).getDate();
+            if (day > lastDayOfTargetMonth) {
+                d.setDate(lastDayOfTargetMonth);
+            }
+            return d;
+        };
+
+        const candidates = [
+            makeDate(currentYear, currentMonth - 1, d2), // Prev D2
+            makeDate(currentYear, currentMonth, d1),     // Curr D1
+            makeDate(currentYear, currentMonth, d2),     // Curr D2
+            makeDate(currentYear, currentMonth + 1, d1)  // Next D1
+        ];
+
+        // Find the "Current" period start: the latest date <= now
+        let currentIndex = -1;
+        for (let i = 0; i < candidates.length; i++) {
+            if (candidates[i] <= now) {
+                currentIndex = i;
+            } else {
+                break;
+            }
+        }
+
+        // Apply offset
+        // We want to move `offset` periods from candidates[currentIndex]
+        // But since we only generated 4 candidates, we need a robust way to calculate ANY offset.
+
+        // Robust approach:
+        // Calculate total months passed + periods passed.
+        // Base: Current Month, D1.
+        // If now < Curr.D1, we are in Prev.D2 period (Period -1 relative to Curr.D1).
+        // If now >= Curr.D1 and < Curr.D2, we are in Curr.D1 period (Period 0).
+        // If now >= Curr.D2, we are in Curr.D2 period (Period 1).
+
+        let basePeriod = 0;
+        if (now.getDate() < d1) basePeriod = -1;
+        else if (now.getDate() >= d2) basePeriod = 1;
+
+        // Target period index relative to "Current Month D1"
+        const targetPeriodIndex = basePeriod + offset;
+
+        // Calculate target month and which pay day (d1 or d2)
+        // Groups of 2 periods per month.
+        // floor(targetPeriodIndex / 2) = months to add
+        // targetPeriodIndex % 2 = which day (0 -> d1, 1 -> d2)
+
+        const monthsToAdd = Math.floor(targetPeriodIndex / 2);
+        const isSecondPeriod = (Math.abs(targetPeriodIndex) % 2 === 1)
+            ? (targetPeriodIndex < 0 ? basePeriod === 1 : true) // tricky math for negative modulo
+            // Simpler: just check parity of targetPeriodIndex
+            : false;
+
+        // Let's simplify:
+        // periods are ordered 0, 1, 2, 3...
+        // 0 = Month 0, Day 1
+        // 1 = Month 0, Day 2
+        // 2 = Month 1, Day 1
+
+        // Find "Period 0" absolute index relative to some epoch? No.
+
+        // Let's use the iterative approach from known current start.
+        // Start from Current Month D1.
+        const startOfThisMonthD1 = makeDate(currentYear, currentMonth, d1);
+        let periodsShift = 0;
+
+        if (now < startOfThisMonthD1) {
+            // We are before D1, so we are in prev month D2 loop? 
+            // Actually let's trust the logic:
+            // If today is 5th (and D1=15), we want the period starting last month 30th.
+        }
+
+        // New Robust logic:
+        // 1. Establish a "Reference Start" = Current Month, D1.
+        // 2. Determine "Periods away from reference" for *current* state.
+        //    - If today < D1: -1 (Reference is future, so current is -1 i.e. Prev D2)
+        //    - If today >= D1 && today < D2: 0 (Current is Reference)
+        //    - If today >= D2: 1 (Current is next one)
+        // 3. Add `offset` to this value. -> `totalShifts`
+        // 4. Calculate new date from Reference + `totalShifts`.
+
+        const currentDay = now.getDate();
+        let currentShift = 0;
+        if (currentDay < d1) currentShift = -1;
+        else if (currentDay >= d2) currentShift = 1;
+
+        const totalShifts = currentShift + offset;
+
+        // Apply shifts
+        // integer division by 2 for months
+        // remainder for day swap
+
+        const addedMonths = Math.floor(totalShifts / 2);
+        const remainder = totalShifts % 2;
+
+        // Javascript modulo bug with negatives: -1 % 2 = -1. We want canonical modulus.
+        // Actually, logic is:
+        // Even shift (0, 2, -2) -> Same day type (D1)
+        // Odd shift (1, -1) -> Other day type (D2)
+
+        let targetMonthIndex = currentMonth + addedMonths;
+        let targetDay = d1;
+
+        // If totalShifts is even: we are at D1 + months.
+        // If totalShifts is odd: we are at D2 + months.
+        // Wait, D1 -> D2 is +1 shift. D2 -> Next D1 is +1 shift.
+        // D1 (0) -> D2 (1). D1 + 0 months.
+        // D1 (0) -> Next D1 (2). D1 + 1 month.
+
+        // So:
+        // If absolute(totalShifts) % 2 !== 0, then we switch day.
+        // But depends on start.
+        // Start is D1.
+        // 0 -> D1
+        // 1 -> D2
+        // 2 -> D1 (Next month)
+        // 3 -> D2 (Next month)
+        // -1 -> D2 (Prev month) ... wait, -1 from D1 is Prev Month D2.
+
+        // Correct logic:
+        // Month += floor(total / 2)
+        // Day index = (0 + total) % 2. 
+        // 0 -> D1. 1 -> D2.
+        // Handle negative modulus for day index properly.
+        const normalizedShift = (totalShifts % 2 + 2) % 2; // will be 0 or 1
+
+        targetDay = normalizedShift === 0 ? d1 : d2;
+
+        // Note: Math.floor handles negatives correctly for months (-1 / 2 = -1 (0.5)).
+        // e.g. -1: floor is -1. Month -1. Remainder -1 -> norm 1 (D2). Correct (Prev Month D2).
+
+        const start = makeDate(currentYear, targetMonthIndex, targetDay);
+
+        // Determine End date
+        // End date is "Next Period Start" - 1 day.
+        // Next period is totalShifts + 1.
+
+        const nextShift = totalShifts + 1;
+        const nextMonthAdd = Math.floor(nextShift / 2);
+        const nextNormShift = (nextShift % 2 + 2) % 2;
+        const nextDay = nextNormShift === 0 ? d1 : d2;
+
+        const nextStart = makeDate(currentYear, currentMonth + nextMonthAdd, nextDay);
+
+        const end = new Date(nextStart);
+        end.setDate(end.getDate() - 1);
+        end.setHours(23, 59, 59, 999);
+
+        return { start, end };
+    }
 
     if (frequency === 'monthly') {
         const anchorDay = anchorDate.getDate();

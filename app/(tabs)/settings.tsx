@@ -227,12 +227,6 @@ export default function SettingsScreen() {
                 <List.Section>
                     <List.Subheader style={styles.subheader}>Security & System</List.Subheader>
                     <List.Item
-                        title="Change PIN"
-                        left={props => <View style={styles.iconContainer}><Lock size={20} color={theme.colors.primary} /></View>}
-                        onPress={() => console.log('Change PIN')}
-                        right={() => <ChevronRight size={20} color={theme.colors.onSurfaceVariant} style={{ marginTop: 4 }} />}
-                    />
-                    <List.Item
                         title="About Billi"
                         description="Version 1.0.0 (Beta)"
                         left={props => <View style={styles.iconContainer}><Info size={20} color={theme.colors.primary} /></View>}

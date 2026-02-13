@@ -11,7 +11,8 @@ interface UserPreferences {
     biometricsEnabled: boolean;
     currency: string;
     payPeriodStart: number; // Stored as timestamp
-    payPeriodOccurrence: 'weekly' | 'bi-weekly' | 'monthly';
+    payPeriodOccurrence: 'weekly' | 'bi-weekly' | 'monthly' | 'semi-monthly';
+    payPeriodSemiMonthlyDays: [number, number]; // e.g. [15, 30]
     upcomingReminderDays: number;
 }
 
@@ -23,7 +24,8 @@ interface UserPreferencesContextType {
     toggleBiometrics: () => Promise<boolean>;
     setCurrency: (currency: string) => void;
     setPayPeriodStart: (date: Date) => void;
-    setPayPeriodOccurrence: (occurrence: 'weekly' | 'bi-weekly' | 'monthly') => void;
+    setPayPeriodOccurrence: (occurrence: 'weekly' | 'bi-weekly' | 'monthly' | 'semi-monthly') => void;
+    setPayPeriodSemiMonthlyDays: (days: [number, number]) => void;
     setUpcomingReminderDays: (days: number) => void;
     authenticate: () => Promise<boolean>;
 }
@@ -45,6 +47,7 @@ export function UserPreferencesProvider({ children }: { children: ReactNode }) {
         currency: 'USD',
         payPeriodStart: new Date(2026, 0, 26).getTime(),
         payPeriodOccurrence: 'bi-weekly',
+        payPeriodSemiMonthlyDays: [15, 30],
         upcomingReminderDays: 2,
     });
 
@@ -82,6 +85,7 @@ export function UserPreferencesProvider({ children }: { children: ReactNode }) {
                             currency: data.currency || 'USD',
                             payPeriodStart: data.pay_period_start ? new Date(data.pay_period_start).getTime() : new Date(2026, 0, 26).getTime(),
                             payPeriodOccurrence: data.pay_period_occurrence as any || 'bi-weekly',
+                            payPeriodSemiMonthlyDays: data.pay_period_semi_monthly_days || [15, 30],
                             upcomingReminderDays: data.upcoming_warning_window ?? 2,
                         };
                         setPreferences(cloudPrefs);
@@ -133,6 +137,7 @@ export function UserPreferencesProvider({ children }: { children: ReactNode }) {
                         currency: localOrComputedPrefs.currency,
                         pay_period_start: new Date(localOrComputedPrefs.payPeriodStart).toISOString(),
                         pay_period_occurrence: localOrComputedPrefs.payPeriodOccurrence,
+                        pay_period_semi_monthly_days: localOrComputedPrefs.payPeriodSemiMonthlyDays,
                         upcoming_warning_window: localOrComputedPrefs.upcomingReminderDays,
                         updated_at: new Date().toISOString()
                     });
@@ -177,6 +182,7 @@ export function UserPreferencesProvider({ children }: { children: ReactNode }) {
                         currency: newPrefs.currency,
                         pay_period_start: new Date(newPrefs.payPeriodStart).toISOString(),
                         pay_period_occurrence: newPrefs.payPeriodOccurrence,
+                        pay_period_semi_monthly_days: newPrefs.payPeriodSemiMonthlyDays,
                         upcoming_warning_window: newPrefs.upcomingReminderDays,
                         updated_at: new Date().toISOString()
                     });
@@ -271,9 +277,17 @@ export function UserPreferencesProvider({ children }: { children: ReactNode }) {
         });
     };
 
-    const setPayPeriodOccurrence = (occurrence: 'weekly' | 'bi-weekly' | 'monthly') => {
+    const setPayPeriodOccurrence = (occurrence: 'weekly' | 'bi-weekly' | 'monthly' | 'semi-monthly') => {
         setPreferences(prev => {
             const next = { ...prev, payPeriodOccurrence: occurrence };
+            savePrefsHelper(next);
+            return next;
+        });
+    };
+
+    const setPayPeriodSemiMonthlyDays = (days: [number, number]) => {
+        setPreferences(prev => {
+            const next = { ...prev, payPeriodSemiMonthlyDays: days };
             savePrefsHelper(next);
             return next;
         });
@@ -297,6 +311,7 @@ export function UserPreferencesProvider({ children }: { children: ReactNode }) {
             setCurrency,
             setPayPeriodStart,
             setPayPeriodOccurrence,
+            setPayPeriodSemiMonthlyDays,
             setUpcomingReminderDays,
             authenticate
         }}>

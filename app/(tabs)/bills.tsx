@@ -12,6 +12,7 @@ import DraggableFlatList, {
 import { useBills, Bill } from '../../context/BillContext';
 import { usePreferences } from '../../context/UserPreferencesContext';
 import { MONTHS, parseDate, getPayPeriodInterval, getBillStatusColor, getDisplayDate, getBillAlertStatus } from '../../utils/date';
+import { useIsFocused } from '@react-navigation/native';
 
 
 
@@ -22,6 +23,7 @@ import { MONTHS, parseDate, getPayPeriodInterval, getBillStatusColor, getDisplay
 export default function BillsScreen() {
     const theme = useTheme();
     const router = useRouter();
+    const isFocused = useIsFocused();
     const { bills, setBills, deleteBill: contextDeleteBill, toggleBillStatus, toggleClearStatus, resetAllStatuses } = useBills();
     const { preferences } = usePreferences();
     const [searchQuery, setSearchQuery] = useState('');
@@ -47,10 +49,10 @@ export default function BillsScreen() {
     };
 
     const intervals = useMemo(() => ({
-        last: getPayPeriodInterval(preferences.payPeriodStart, preferences.payPeriodOccurrence, -1),
-        this: getPayPeriodInterval(preferences.payPeriodStart, preferences.payPeriodOccurrence, 0),
-        next: getPayPeriodInterval(preferences.payPeriodStart, preferences.payPeriodOccurrence, 1),
-    }), [preferences.payPeriodStart, preferences.payPeriodOccurrence]);
+        last: getPayPeriodInterval(preferences.payPeriodStart, preferences.payPeriodOccurrence, -1, preferences.payPeriodSemiMonthlyDays),
+        this: getPayPeriodInterval(preferences.payPeriodStart, preferences.payPeriodOccurrence, 0, preferences.payPeriodSemiMonthlyDays),
+        next: getPayPeriodInterval(preferences.payPeriodStart, preferences.payPeriodOccurrence, 1, preferences.payPeriodSemiMonthlyDays),
+    }), [preferences.payPeriodStart, preferences.payPeriodOccurrence, preferences.payPeriodSemiMonthlyDays]);
 
     const handleReset = () => {
         Alert.alert(
@@ -440,6 +442,7 @@ export default function BillsScreen() {
                         onPress={() => router.push('/add-bill')}
                         label="Add Bill"
                         color={theme.dark ? theme.colors.onPrimary : '#F5F7FA'}
+                        visible={isFocused}
                     />
                 </Portal>
             </KeyboardAvoidingView>

@@ -694,6 +694,11 @@ export default function AddBillScreen() {
                                                     onPress={() => {
                                                         setOccurrence(item as any);
                                                         setDueDays([]); // Reset days on occurrence change
+                                                        if (item !== 'One Time') {
+                                                            setIsRecurring(true);
+                                                        } else {
+                                                            setIsRecurring(false);
+                                                        }
                                                         setShowFrequencyMenu(false);
                                                     }}
                                                 >
