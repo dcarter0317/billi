@@ -74,7 +74,98 @@ export default function BillsScreen() {
         );
     };
 
+    const getRecurringDueDateForMonth = (bill: Bill, monthIndex: number, year: number) => {
+        const occurrence = bill.occurrence || 'Every Month';
+        const isRecurring = bill.isRecurring || occurrence !== 'One Time';
+        if (!isRecurring) return null;
+        const anchorDate = parseDate(bill.dueDate);
+        const monthEnd = new Date(year, monthIndex + 1, 0);
+
+        if (monthEnd < anchorDate) return null;
+
+        const makeDate = (day: number) => {
+            const lastDay = new Date(year, monthIndex + 1, 0).getDate();
+            return new Date(year, monthIndex, Math.min(day, lastDay));
+        };
+
+        const normalizeStartMonthDate = (date: Date) => {
+            if (date.getFullYear() === anchorDate.getFullYear() && date.getMonth() === anchorDate.getMonth() && date < anchorDate) {
+                return new Date(anchorDate);
+            }
+            return date;
+        };
+
+        if (occurrence === 'Every Year') {
+            if (monthIndex !== anchorDate.getMonth() || year < anchorDate.getFullYear()) return null;
+            return makeDate(anchorDate.getDate());
+        }
+
+        if (occurrence === 'Every Quarter') {
+            const diffMonths = (year - anchorDate.getFullYear()) * 12 + (monthIndex - anchorDate.getMonth());
+            if (diffMonths < 0 || diffMonths % 3 !== 0) return null;
+            return makeDate(anchorDate.getDate());
+        }
+
+        if (occurrence === 'Every Week' || occurrence === 'Twice a Week' || occurrence === 'Every Other Week') {
+            const weekdays = (bill.dueDays && bill.dueDays.length > 0) ? bill.dueDays : [anchorDate.getDay()];
+            const sortedDays = [...weekdays].sort((a, b) => a - b);
+            const lastDay = monthEnd.getDate();
+
+            for (let day = 1; day <= lastDay; day += 1) {
+                const candidate = new Date(year, monthIndex, day);
+                if (!sortedDays.includes(candidate.getDay())) continue;
+
+                if (occurrence === 'Every Other Week') {
+                    const diffDays = Math.floor((candidate.getTime() - anchorDate.getTime()) / (1000 * 60 * 60 * 24));
+                    if (diffDays < 0 || Math.floor(diffDays / 7) % 2 !== 0) continue;
+                }
+
+                if (candidate < anchorDate) continue;
+                return candidate;
+            }
+            return null;
+        }
+
+        if (occurrence === 'Twice a Month') {
+            const day = (bill.dueDays && bill.dueDays.length > 0)
+                ? [...bill.dueDays].sort((a, b) => a - b)[0]
+                : anchorDate.getDate();
+            return normalizeStartMonthDate(makeDate(day));
+        }
+
+        if (occurrence === 'Installments') {
+            return normalizeStartMonthDate(makeDate(anchorDate.getDate()));
+        }
+
+        const monthlyDay = (bill.dueDays && bill.dueDays.length > 0) ? bill.dueDays[0] : anchorDate.getDate();
+        return normalizeStartMonthDate(makeDate(monthlyDay));
+    };
+
     const filteredBills = useMemo(() => {
+        if (filterPeriod === 'monthly') {
+            if (selectedMonth === -1) return bills;
+
+            const currentYear = new Date().getFullYear();
+
+            return bills.reduce((acc: Bill[], bill) => {
+                const matchesSearch = bill.title.toLowerCase().includes(searchQuery.toLowerCase());
+                if (!matchesSearch) return acc;
+
+                const billDate = parseDate(bill.dueDate);
+                if (billDate.getMonth() === selectedMonth && billDate.getFullYear() === currentYear) {
+                    acc.push(bill);
+                    return acc;
+                }
+
+                const recurringDueDate = getRecurringDueDateForMonth(bill, selectedMonth, currentYear);
+                if (recurringDueDate) {
+                    acc.push({ ...bill, dueDate: formatDate(recurringDueDate) });
+                }
+
+                return acc;
+            }, []);
+        }
+
         return bills.filter(bill => {
             const matchesSearch = bill.title.toLowerCase().includes(searchQuery.toLowerCase());
             if (!matchesSearch) return false;
@@ -82,17 +173,6 @@ export default function BillsScreen() {
             if (filterPeriod === 'all') return true;
 
             const billDate = parseDate(bill.dueDate);
-            const today = new Date();
-            const currentYear = today.getFullYear();
-
-            if (filterPeriod === 'monthly') {
-                if (selectedMonth === -1) return true;
-
-                // Show bills whose current due date falls in the selected month
-                if (billDate.getMonth() === selectedMonth && billDate.getFullYear() === currentYear) return true;
-                return false;
-            }
-
             const interval = intervals[filterPeriod as keyof typeof intervals];
             if (!interval) return false;
 
@@ -107,6 +187,10 @@ export default function BillsScreen() {
             return false;
         });
     }, [bills, searchQuery, filterPeriod, selectedMonth, intervals]);
+
+    const displayBills = useMemo(() => {
+        return filteredBills;
+    }, [filteredBills]);
 
     const paidTotal = useMemo(() => {
         return filteredBills
@@ -271,7 +355,7 @@ export default function BillsScreen() {
                 style={{ flex: 1 }}
             >
                 <DraggableFlatList
-                    data={filteredBills}
+                    data={displayBills}
                     onDragEnd={({ data }) => {
                         // Only update main bills list if we're not filtering
                         if (searchQuery.length === 0 && filterPeriod === 'all') {
