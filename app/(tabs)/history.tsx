@@ -1,14 +1,16 @@
 import React, { useState, useMemo } from 'react';
-import { View, ScrollView, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, ScrollView, StyleSheet, TouchableOpacity, Alert } from 'react-native';
 import { Text, Card, useTheme, Button, Avatar, Menu, Divider, Searchbar, IconButton, ActivityIndicator } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import { useBills, Bill } from '../../context/BillContext';
 import { usePreferences } from '../../context/UserPreferencesContext';
-import { MONTHS, parseDate, getPayPeriodInterval, getBillStatusColor } from '../../utils/date';
+import { MONTHS, parseDate, getPayPeriodInterval, formatDate } from '../../utils/date';
 import { supabase } from '../../services/supabase';
 import { useUser } from '../../context/UserContext';
+import { CATEGORIES, CATEGORY_ICONS } from '../../constants/categories';
+import { getCurrencySymbol } from '../../utils/currency';
 
 export interface Transaction {
     id: string;
@@ -22,58 +24,12 @@ export interface Transaction {
     notes?: string;
 }
 
-const CATEGORIES = [
-    'Housing',
-    'Utilities',
-    'Food & Dining',
-    'Transportation',
-    'Entertainment',
-    'Health & Fitness',
-    'Shopping',
-    'Insurance',
-    'Personal Care',
-    'Education',
-    'Subscriptions',
-    'Investments',
-    'Debt & Loans',
-    'Credit Card',
-    'Student Loan',
-    'Gifts & Donations',
-    'Taxes',
-    'Travel',
-    'Pets',
-    'Other',
-    'Custom'
-];
 
-const CATEGORY_ICONS: Record<string, string> = {
-    'Housing': 'home',
-    'Utilities': 'flash',
-    'Food & Dining': 'silverware-fork-knife',
-    'Transportation': 'car',
-    'Entertainment': 'movie',
-    'Health & Fitness': 'heart-pulse',
-    'Shopping': 'shopping',
-    'Insurance': 'shield-check',
-    'Personal Care': 'face-man',
-    'Education': 'school',
-    'Subscriptions': 'calendar-refresh',
-    'Investments': 'trending-up',
-    'Debt & Loans': 'bank',
-    'Credit Card': 'credit-card',
-    'Student Loan': 'school',
-    'Gifts & Donations': 'gift',
-    'Taxes': 'file-document-outline',
-    'Travel': 'airplane',
-    'Pets': 'paw',
-    'Other': 'dots-horizontal',
-    'Custom': 'star'
-};
 
 export default function HistoryScreen() {
     const theme = useTheme();
     const router = useRouter();
-    const { bills } = useBills();
+    const { bills, deleteBill } = useBills();
     const { user, isSignedIn } = useUser();
     const { preferences } = usePreferences();
     const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -87,7 +43,7 @@ export default function HistoryScreen() {
     const [selectedCategory, setSelectedCategory] = useState<string>('All');
     const [showCategoryMenu, setShowCategoryMenu] = useState(false);
 
-    const currencySymbol = preferences.currency === 'EUR' ? '€' : '$';
+    const currencySymbol = getCurrencySymbol(preferences.currency);
 
     const intervals = useMemo(() => ({
         last: getPayPeriodInterval(preferences.payPeriodStart, preferences.payPeriodOccurrence, -1, preferences.payPeriodSemiMonthlyDays),
@@ -148,7 +104,7 @@ export default function HistoryScreen() {
 
             if (filterPeriod === 'all') return true;
 
-            const date = new Date(dateStr);
+            const date = parseDate(dateStr);
             if (filterPeriod === 'monthly') {
                 if (selectedMonth === -1) return true;
                 return date.getMonth() === selectedMonth && date.getFullYear() === new Date().getFullYear();
@@ -160,8 +116,8 @@ export default function HistoryScreen() {
 
         // Sort: Newest first
         const sorted = pertinent.sort((a, b) => {
-            const dateA = new Date('transaction_date' in a ? a.transaction_date : a.dueDate).getTime();
-            const dateB = new Date('transaction_date' in b ? b.transaction_date : b.dueDate).getTime();
+            const dateA = parseDate('transaction_date' in a ? a.transaction_date : a.dueDate).getTime();
+            const dateB = parseDate('transaction_date' in b ? b.transaction_date : b.dueDate).getTime();
             return dateB - dateA;
         });
 
@@ -349,7 +305,7 @@ export default function HistoryScreen() {
                                 subtitle={
                                     <View>
                                         <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, opacity: 0.7 }}>
-                                            Settled on {('transaction_date' in item) ? new Date(item.transaction_date).toLocaleDateString() : ((item as Bill).clearedDate || (item as Bill).dueDate)}
+                                            Settled on {('transaction_date' in item) ? formatDate(new Date(item.transaction_date)) : (formatDate(parseDate((item as Bill).clearedDate || (item as Bill).dueDate)))}
                                         </Text>
                                         <View style={[styles.categoryBadge, { flexDirection: 'row', alignItems: 'center', gap: 6, opacity: 0.6 }]}>
                                             <Text variant="labelSmall" style={styles.categoryText}>
@@ -371,9 +327,46 @@ export default function HistoryScreen() {
                                     />
                                 )}
                                 right={(props) => (
-                                    <Text variant="titleMedium" style={{ marginRight: 16, opacity: 0.7, textDecorationLine: 'line-through' }}>
-                                        {currencySymbol}{item.amount}
-                                    </Text>
+                                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                        <Text variant="titleMedium" style={{ opacity: 0.7, textDecorationLine: 'line-through' }}>
+                                            {currencySymbol}{item.amount}
+                                        </Text>
+                                        {item.bill_id && (
+                                            <IconButton
+                                                icon="delete-outline"
+                                                size={20}
+                                                iconColor={theme.colors.error}
+                                                onPress={() => {
+                                                    Alert.alert(
+                                                        'Delete Bill',
+                                                        `Are you sure you want to delete "${item.title}"? This will remove the bill and all its transaction history.`,
+                                                        [
+                                                            { text: 'Cancel', style: 'cancel' },
+                                                            {
+                                                                text: 'Delete',
+                                                                style: 'destructive',
+                                                                onPress: async () => {
+                                                                    try {
+                                                                        // Delete all transactions for this bill
+                                                                        await supabase
+                                                                            .from('transactions')
+                                                                            .delete()
+                                                                            .eq('bill_id', item.bill_id);
+                                                                        // Delete the bill itself
+                                                                        await deleteBill(item.bill_id);
+                                                                        // Refresh history
+                                                                        fetchTransactions();
+                                                                    } catch (err) {
+                                                                        console.error('Error deleting:', err);
+                                                                    }
+                                                                },
+                                                            },
+                                                        ]
+                                                    );
+                                                }}
+                                            />
+                                        )}
+                                    </View>
                                 )}
                             />
                         </Card>

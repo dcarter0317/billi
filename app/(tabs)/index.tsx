@@ -7,8 +7,9 @@ import { useRouter } from 'expo-router';
 import { useUser } from '../../context/UserContext';
 import { useBills, Bill } from '../../context/BillContext';
 import { usePreferences } from '../../context/UserPreferencesContext';
-import { MONTHS, parseDate, getPayPeriodInterval } from '../../utils/date';
+import { MONTHS, parseDate, getPayPeriodInterval, formatDate } from '../../utils/date';
 import { supabase } from '../../services/supabase';
+import { getCurrencySymbol } from '../../utils/currency';
 import { useFocusEffect } from '@react-navigation/native';
 import { CATEGORIES, CATEGORY_ICONS } from '../../constants/categories';
 import BillCard from '../../components/BillCard';
@@ -40,7 +41,7 @@ export default function HomeScreen() {
     const [selectedCategory, setSelectedCategory] = useState<string>('All');
     const [showCategoryMenu, setShowCategoryMenu] = useState(false);
 
-    const currencySymbol = preferences.currency === 'EUR' ? '€' : '$';
+    const currencySymbol = getCurrencySymbol(preferences.currency);
 
     const [transactions, setTransactions] = useState<Transaction[]>([]);
     const [loadingTransactions, setLoadingTransactions] = useState(false);
@@ -79,7 +80,6 @@ export default function HomeScreen() {
     const { upcomingBills, settledBills, totalDue, paidTotal } = useMemo(() => {
         // 1. Upcoming Bills: Derived from current bill states
         const upcoming = bills.filter((bill: Bill) => {
-            if (bill.isPaid) return false;
 
             // Apply Search Filter
             if (searchQuery.length > 0 && !bill.title.toLowerCase().includes(searchQuery.toLowerCase())) {
@@ -100,18 +100,17 @@ export default function HomeScreen() {
 
             if (filterPeriod === 'monthly') {
                 if (selectedMonth === -1) return true;
+
+                // Show bills whose current due date falls in the selected month
                 if (billDate.getMonth() === selectedMonth && billDate.getFullYear() === currentYear) return true;
-                if (bill.isRecurring) {
-                    if (billDate.getFullYear() < currentYear) return true;
-                    if (billDate.getFullYear() === currentYear && selectedMonth > billDate.getMonth()) return true;
-                }
                 return false;
             }
 
             const interval = intervals[filterPeriod as keyof typeof intervals];
             if (!interval) return false;
+
+            // Show only if the bill's due date falls within the period
             if (billDate >= interval.start && billDate <= interval.end) return true;
-            if (bill.isRecurring && interval.start > billDate) return true;
 
             return false;
         }).sort((a: Bill, b: Bill) => parseDate(a.dueDate).getTime() - parseDate(b.dueDate).getTime());
@@ -130,7 +129,7 @@ export default function HomeScreen() {
 
             if (filterPeriod === 'all') return true;
 
-            const tDate = new Date(t.transaction_date);
+            const tDate = parseDate(t.transaction_date);
             const currentYear = new Date().getFullYear();
 
             if (filterPeriod === 'monthly') {
@@ -368,8 +367,7 @@ export default function HomeScreen() {
                             Showing: {
                                 (() => {
                                     const range = intervals[filterPeriod as keyof typeof intervals];
-                                    if (!range || !range.start || isNaN(range.start.getTime())) return 'Invalid Period';
-                                    return `${range.start.toLocaleDateString()} - ${range.end.toLocaleDateString()}`;
+                                    return `${formatDate(range.start)} - ${formatDate(range.end)}`;
                                 })()
                             }
                         </Text>
@@ -377,7 +375,7 @@ export default function HomeScreen() {
                 }
 
                 {
-                    searchQuery.length === 0 && filterPeriod === 'monthly' && (
+                    searchQuery.length === 0 && filterPeriod === 'monthly' && selectedMonth >= 0 && (
                         <Text variant="labelSmall" style={styles.helperText}>
                             Showing bills for {MONTHS[selectedMonth]} {new Date().getFullYear()}
                         </Text>
@@ -412,43 +410,7 @@ export default function HomeScreen() {
                     )
                 }
 
-                {
-                    settledBills.length > 0 && (
-                        <View style={{ marginTop: 24 }}>
-                            <Text variant="titleLarge" style={{ fontWeight: 'bold', marginBottom: 12 }}>Settled</Text>
-                            {settledBills.map((item: any) => (
-                                <Card key={item.id} style={[styles.billCard, styles.settledCard]}>
-                                    <Card.Title
-                                        title={<Text variant="titleMedium" style={{ fontWeight: 'bold', textDecorationLine: 'line-through', opacity: 0.6 }}>{item.title}</Text>}
-                                        subtitle={
-                                            <View>
-                                                <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, opacity: 0.6 }}>
-                                                    Settled on {('transaction_date' in item) ? new Date(item.transaction_date).toLocaleDateString() : (item.clearedDate || item.dueDate)}
-                                                </Text>
-                                                <View style={[styles.categoryBadge, { opacity: 0.5 }]}>
-                                                    <Text variant="labelSmall" style={styles.categoryText}>{item.category}</Text>
-                                                </View>
-                                            </View>
-                                        }
-                                        left={(props) => (
-                                            <Avatar.Icon
-                                                {...props}
-                                                icon={CATEGORY_ICONS[item.category as keyof typeof CATEGORY_ICONS] || 'star'}
-                                                style={{ backgroundColor: theme.colors.surfaceVariant, opacity: 0.5 }}
-                                                color={theme.colors.onSurfaceVariant}
-                                            />
-                                        )}
-                                        right={(props) => (
-                                            <Text variant="titleMedium" style={{ marginRight: 16, opacity: 0.6, textDecorationLine: 'line-through' }}>
-                                                {currencySymbol}{item.amount}
-                                            </Text>
-                                        )}
-                                    />
-                                </Card>
-                            ))}
-                        </View>
-                    )
-                }
+                {/* Settled section removed per user request */}
 
             </ScrollView >
         </SafeAreaView >

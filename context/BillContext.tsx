@@ -22,7 +22,7 @@ export interface Bill {
     category: string;
     order?: number;
     recurrenceDay?: number; // Kept for legacy/migration
-    occurrence?: 'Every Month' | 'Every Week' | 'Twice a Week' | 'Twice a Month' | 'Every Other Week' | 'One Time' | 'Installments';
+    occurrence?: 'Every Month' | 'Every Week' | 'Twice a Week' | 'Twice a Month' | 'Every Other Week' | 'Every Quarter' | 'Every Year' | 'One Time' | 'Installments';
     dueDays?: number[]; // 1-31 for months, 0-6 for weeks
     totalInstallments?: number;
     paidInstallments?: number;
@@ -56,7 +56,7 @@ const BillContext = createContext<BillContextType | undefined>(undefined);
 const STORAGE_KEY = 'billi_bills_data';
 
 export function BillProvider({ children }: { children: ReactNode }) {
-    console.log('--- BILL PROVIDER MOUNTED: DATABASE VERSION ---');
+
     const [bills, setBillsState] = useState<Bill[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -86,10 +86,10 @@ export function BillProvider({ children }: { children: ReactNode }) {
         id: dbBill.id,
         title: dbBill.title,
         amount: dbBill.amount?.toString() || '0.00',
-        dueDate: dbBill.due_date,
+        dueDate: formatDate(parseDate(dbBill.due_date)),
         isPaid: dbBill.is_paid || false,
         isCleared: dbBill.is_cleared || false,
-        clearedDate: dbBill.cleared_date || undefined,
+        clearedDate: dbBill.cleared_date ? formatDate(parseDate(dbBill.cleared_date)) : undefined,
         category: dbBill.category,
         order: dbBill.order || 0,
         occurrence: (dbBill.occurrence as Bill['occurrence']) || 'Every Month',
@@ -100,14 +100,24 @@ export function BillProvider({ children }: { children: ReactNode }) {
         notes: dbBill.notes || ''
     });
 
+    const toDbDate = (dateStr: string): string => {
+        const d = parseDate(dateStr);
+        // Use local date components, NOT toISOString() which converts to UTC
+        // and can shift the date ±1 day depending on timezone
+        const yyyy = d.getFullYear();
+        const mm = String(d.getMonth() + 1).padStart(2, '0');
+        const dd = String(d.getDate()).padStart(2, '0');
+        return `${yyyy}-${mm}-${dd}`;
+    };
+
     const mapLocalBillToDb = (bill: Partial<Bill>, userId: string): Partial<DbBill> => {
         const db: any = { user_id: userId };
         if (bill.title !== undefined) db.title = bill.title;
         if (bill.amount !== undefined) db.amount = parseFloat(bill.amount);
-        if (bill.dueDate !== undefined) db.due_date = bill.dueDate;
+        if (bill.dueDate !== undefined) db.due_date = toDbDate(bill.dueDate);
         if (bill.isPaid !== undefined) db.is_paid = bill.isPaid;
         if (bill.isCleared !== undefined) db.is_cleared = bill.isCleared;
-        if (bill.clearedDate !== undefined) db.cleared_date = bill.clearedDate;
+        if (bill.clearedDate !== undefined) db.cleared_date = bill.clearedDate ? toDbDate(bill.clearedDate) : null;
         if (bill.category !== undefined) db.category = bill.category;
         if (bill.occurrence !== undefined) db.occurrence = bill.occurrence;
         if (bill.dueDays !== undefined) db.due_days = bill.dueDays;
@@ -161,19 +171,46 @@ export function BillProvider({ children }: { children: ReactNode }) {
         if (!isSignedIn || !user) return;
 
         try {
-            const { error } = await supabase
-                .from('transactions')
-                .insert({
-                    user_id: user.id,
-                    bill_id: bill.id,
-                    title: bill.title,
-                    amount: parseFloat(bill.amount),
-                    category: bill.category,
-                    settlement_type: type,
-                    notes: bill.notes
-                });
+            // Deduplication logic: Check for an existing transaction for this bill created today.
+            const today = new Date().toISOString().split('T')[0];
 
-            if (error) throw error;
+            const { data: existingRows, error: fetchError } = await supabase
+                .from('transactions')
+                .select('id, settlement_type')
+                .eq('bill_id', bill.id)
+                .gte('transaction_date', today)
+                .limit(1);
+
+            const existing = existingRows?.[0] ?? null;
+
+            if (fetchError) throw fetchError;
+
+            if (existing) {
+                const { error: updateError } = await supabase
+                    .from('transactions')
+                    .update({
+                        settlement_type: type,
+                        amount: parseFloat(bill.amount),
+                        transaction_date: new Date().toISOString()
+                    })
+                    .eq('id', existing.id);
+
+                if (updateError) throw updateError;
+            } else {
+                const { error: insertError } = await supabase
+                    .from('transactions')
+                    .insert({
+                        user_id: user.id,
+                        bill_id: bill.id,
+                        title: bill.title,
+                        amount: parseFloat(bill.amount),
+                        category: bill.category,
+                        settlement_type: type,
+                        notes: bill.notes
+                    });
+
+                if (insertError) throw insertError;
+            }
         } catch (err) {
             console.error(`Failed to record ${type} transaction:`, err);
         }
@@ -200,7 +237,12 @@ export function BillProvider({ children }: { children: ReactNode }) {
 
         try {
             if (isSignedIn && user) {
-                const dbBill = mapLocalBillToDb(bill, user.id);
+                const localBill: Omit<Bill, 'id'> = {
+                    ...bill,
+                    dueDate: formatDate(parseDate(bill.dueDate)),
+                    clearedDate: bill.clearedDate ? formatDate(parseDate(bill.clearedDate)) : undefined
+                };
+                const dbBill = mapLocalBillToDb(localBill, user.id);
                 const { data, error: insertError } = await supabase
                     .from('bills')
                     .insert(dbBill)
@@ -262,10 +304,11 @@ export function BillProvider({ children }: { children: ReactNode }) {
 
     const deleteBill = async (id: string) => {
         const billToDelete = bills.find(b => b.id === id);
-        if (!billToDelete) return;
 
-        // Optimistic UI
-        setBillsState(prev => prev.filter(b => b.id !== id));
+        // Optimistic UI — remove from local state if present
+        if (billToDelete) {
+            setBillsState(prev => prev.filter(b => b.id !== id));
+        }
 
         try {
             if (isSignedIn && user) {
@@ -275,16 +318,83 @@ export function BillProvider({ children }: { children: ReactNode }) {
                     .eq('id', id);
 
                 if (error) throw error;
-            } else {
+            } else if (billToDelete) {
                 const updatedBills = bills.filter((b: Bill) => b.id !== id);
                 await saveBillsToStorage(updatedBills);
             }
         } catch (err) {
             console.error('Error deleting bill:', err);
-            // Rollback
-            setBillsState(prev => [...prev, billToDelete]);
+            // Rollback if we removed it optimistically
+            if (billToDelete) {
+                setBillsState(prev => [...prev, billToDelete]);
+            }
             setError('Failed to delete bill.');
         }
+    };
+
+    const calculateNextDueDate = (bill: Bill): Date | null => {
+        const currentDueDate = parseDate(bill.dueDate);
+        let nextDueDate = new Date(currentDueDate);
+
+        if (bill.dueDays && bill.dueDays.length > 0) {
+            const sortedDays = [...bill.dueDays].sort((a, b) => a - b);
+            const occurrence = bill.occurrence || 'Every Month';
+            if (occurrence.includes('Week')) {
+                const currentDay = currentDueDate.getDay();
+                const nextDay = sortedDays.find(d => d > currentDay);
+                if (nextDay !== undefined) {
+                    nextDueDate.setDate(currentDueDate.getDate() + (nextDay - currentDay));
+                } else {
+                    nextDueDate.setDate(currentDueDate.getDate() + (7 - currentDay + sortedDays[0]));
+                }
+            } else {
+                const currentDate = currentDueDate.getDate();
+                const nextDay = sortedDays.find(d => d > currentDate);
+                if (nextDay !== undefined) {
+                    nextDueDate.setDate(nextDay);
+                    if (nextDueDate.getDate() !== nextDay) nextDueDate.setDate(0);
+                } else {
+                    nextDueDate.setMonth(currentDueDate.getMonth() + 1);
+                    nextDueDate.setDate(sortedDays[0]);
+                    if (nextDueDate.getDate() !== sortedDays[0]) nextDueDate.setDate(0);
+                }
+            }
+        } else {
+            switch (bill.occurrence) {
+                case 'Every Week':
+                    nextDueDate.setDate(currentDueDate.getDate() + 7);
+                    break;
+                case 'Every Other Week':
+                    nextDueDate.setDate(currentDueDate.getDate() + 14);
+                    break;
+                case 'Twice a Month':
+                    nextDueDate.setDate(currentDueDate.getDate() + 15);
+                    break;
+                case 'Twice a Week':
+                    nextDueDate.setDate(currentDueDate.getDate() + 3);
+                    break;
+                case 'Installments':
+                    if (bill.installmentRecurrence === 'bi-weekly') {
+                        nextDueDate.setDate(currentDueDate.getDate() + 14);
+                    } else {
+                        nextDueDate.setMonth(currentDueDate.getMonth() + 1);
+                    }
+                    break;
+                case 'Every Quarter':
+                    nextDueDate.setMonth(currentDueDate.getMonth() + 3);
+                    break;
+                case 'Every Year':
+                    nextDueDate.setFullYear(currentDueDate.getFullYear() + 1);
+                    break;
+                default:
+                    nextDueDate.setMonth(currentDueDate.getMonth() + 1);
+            }
+        }
+
+        if (nextDueDate.getTime() !== currentDueDate.getTime()) {
+            return nextDueDate;
+        }
+        return null;
     };
 
     const toggleBillStatus = async (id: string) => {
@@ -294,16 +404,21 @@ export function BillProvider({ children }: { children: ReactNode }) {
         const newIsPaid = !bill.isPaid;
         let updates: Partial<Bill> = { isPaid: newIsPaid };
 
-        if (newIsPaid && bill.occurrence === 'Installments') {
-            const currentPaid = bill.paidInstallments || 0;
-            const total = bill.totalInstallments || Infinity;
-            if (currentPaid < total) {
-                updates.paidInstallments = currentPaid + 1;
-            }
-        }
-
         if (newIsPaid) {
+            // Record the transaction
             await recordTransaction(bill, 'PAID');
+
+            // Advance installments counter
+            if (bill.occurrence === 'Installments') {
+                const currentPaid = bill.paidInstallments || 0;
+                const total = bill.totalInstallments || Infinity;
+                if (currentPaid < total) {
+                    updates.paidInstallments = currentPaid + 1;
+                }
+            }
+
+            // For recurring bills, just mark as paid — don't advance yet.
+            // The bill advances to the next cycle when Clear is toggled.
         }
 
         await updateBill(id, updates);
@@ -326,67 +441,6 @@ export function BillProvider({ children }: { children: ReactNode }) {
         if (newIsCleared) {
             await recordTransaction(bill, 'CLEARED');
             updates.clearedDate = formatDate(new Date());
-
-            if (bill.isRecurring) {
-                const currentDueDate = parseDate(bill.dueDate);
-                let nextDueDate = new Date(currentDueDate);
-
-                if (bill.dueDays && bill.dueDays.length > 0) {
-                    const sortedDays = [...bill.dueDays].sort((a, b) => a - b);
-                    const occurrence = bill.occurrence || 'Every Month';
-                    if (occurrence.includes('Week')) {
-                        const currentDay = currentDueDate.getDay();
-                        const nextDay = sortedDays.find(d => d > currentDay);
-                        if (nextDay !== undefined) {
-                            nextDueDate.setDate(currentDueDate.getDate() + (nextDay - currentDay));
-                        } else {
-                            nextDueDate.setDate(currentDueDate.getDate() + (7 - currentDay + sortedDays[0]));
-                        }
-                    } else {
-                        const currentDate = currentDueDate.getDate();
-                        const nextDay = sortedDays.find(d => d > currentDate);
-                        if (nextDay !== undefined) {
-                            nextDueDate.setDate(nextDay);
-                            if (nextDueDate.getDate() !== nextDay) nextDueDate.setDate(0);
-                        } else {
-                            nextDueDate.setMonth(currentDueDate.getMonth() + 1);
-                            nextDueDate.setDate(sortedDays[0]);
-                            if (nextDueDate.getDate() !== sortedDays[0]) nextDueDate.setDate(0);
-                        }
-                    }
-                } else {
-                    switch (bill.occurrence) {
-                        case 'Every Week':
-                            nextDueDate.setDate(currentDueDate.getDate() + 7);
-                            break;
-                        case 'Every Other Week':
-                            nextDueDate.setDate(currentDueDate.getDate() + 14);
-                            break;
-                        case 'Twice a Month':
-                            nextDueDate.setDate(currentDueDate.getDate() + 15);
-                            break;
-                        case 'Twice a Week':
-                            nextDueDate.setDate(currentDueDate.getDate() + 3);
-                            break;
-                        case 'Installments':
-                            if (bill.installmentRecurrence === 'bi-weekly') {
-                                nextDueDate.setDate(currentDueDate.getDate() + 14);
-                            } else {
-                                nextDueDate.setMonth(currentDueDate.getMonth() + 1);
-                            }
-                            break;
-                        default:
-                            nextDueDate.setMonth(currentDueDate.getMonth() + 1);
-                    }
-                }
-
-                // Only update if we successfully calculated a new date
-                if (nextDueDate.getTime() !== currentDueDate.getTime()) {
-                    updates.dueDate = formatDate(nextDueDate);
-                    updates.isPaid = false;
-                    updates.isCleared = false;
-                }
-            }
         } else {
             updates.clearedDate = undefined;
         }

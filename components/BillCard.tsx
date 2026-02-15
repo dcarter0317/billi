@@ -2,7 +2,7 @@ import React from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Card, Text, Avatar, useTheme } from 'react-native-paper';
 import { Bill } from '../context/BillContext';
-import { parseDate, getDisplayDate, getBillAlertStatus, getBillStatusColor } from '../utils/date';
+import { getBillAlertStatus, getBillStatusColor, parseDate } from '../utils/date';
 import { CATEGORY_ICONS } from '../constants/categories';
 
 interface BillCardProps {
@@ -57,7 +57,7 @@ export default function BillCard({
                 subtitle={
                     <View>
                         <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
-                            Due {parseDate(getDisplayDate(bill, filterPeriod, selectedMonth)).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                            Due {bill.dueDate}
                             {bill.occurrence === 'Installments' && bill.paymentHistory && bill.paymentHistory.length > 0 && (
                                 <Text style={{ color: (theme.colors as any).success || theme.colors.primary }}>
                                     {' • '}Last paid: {bill.paymentHistory[bill.paymentHistory.length - 1].date}

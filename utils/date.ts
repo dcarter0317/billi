@@ -11,18 +11,36 @@ export const parseDate = (date: any): Date => {
     if (!date) return new Date();
     if (date instanceof Date) return date;
 
-    // Try MM-DD-YYYY first
-    const parts = String(date).split('-');
-    if (parts.length === 3) {
-        const [month, day, year] = parts.map(Number);
-        if (!isNaN(month) && !isNaN(day) && !isNaN(year)) {
-            return new Date(year, month - 1, day);
-        }
+    // Handle numeric timestamps or numeric strings
+    if (typeof date === 'number') return new Date(date);
+    if (typeof date === 'string' && /^\d+$/.test(date.trim())) {
+        return new Date(parseInt(date.trim(), 10));
     }
 
-    // Fallback to native Date parser (handles ISO, common strings)
-    const parsed = new Date(date);
-    return isNaN(parsed.getTime()) ? new Date() : parsed;
+    const str = String(date).trim();
+
+    // 1. Try ISO-like YYYY-MM-DD or YYYY/MM/DD
+    const isoMatch = str.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+    if (isoMatch) {
+        return new Date(parseInt(isoMatch[1], 10), parseInt(isoMatch[2], 10) - 1, parseInt(isoMatch[3], 10));
+    }
+
+    // 2. Try MM-DD-YYYY or MM/DD/YYYY
+    const usMatch = str.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+    if (usMatch) {
+        return new Date(parseInt(usMatch[3], 10), parseInt(usMatch[1], 10) - 1, parseInt(usMatch[2], 10));
+    }
+
+    // Fallback to native Date parser
+    const parsed = new Date(str);
+    if (!isNaN(parsed.getTime())) return parsed;
+
+    // Last resort: try replacing all hyphens with slashes
+    const slashed = new Date(str.replace(/-/g, '/'));
+    if (!isNaN(slashed.getTime())) return slashed;
+
+    console.warn(`[parseDate] Failed to parse: "${date}". Returning today.`);
+    return new Date();
 };
 
 export const formatDate = (date: Date): string => {
@@ -268,49 +286,6 @@ export const getPayPeriodInterval = (
 };
 
 
-export const getDisplayDate = (bill: Bill, filterPeriod: string, selectedMonth: number): string => {
-    const billDate = parseDate(bill.dueDate);
-    if (!bill.isRecurring) return bill.dueDate;
-
-    const today = new Date();
-    const currentYear = today.getFullYear();
-
-    // Helper to project a date into the neighborhood of a target date
-    const projectDate = (baseDate: Date, targetDate: Date) => {
-        const result = new Date(baseDate);
-        result.setFullYear(targetDate.getFullYear());
-        result.setMonth(targetDate.getMonth());
-        // Handle month overflow
-        if (result.getMonth() !== targetDate.getMonth()) {
-            result.setDate(0);
-        }
-        return result;
-    };
-
-    // 1. Monthly projection
-    if (filterPeriod === 'monthly' && selectedMonth !== -1) {
-        const target = new Date(currentYear, selectedMonth, 1);
-        return formatDate(projectDate(billDate, target));
-    }
-
-    // 2. Interval projection (Last/This/Next period)
-    const isInterval = ['last', 'this', 'next'].includes(filterPeriod);
-    if (isInterval) {
-        // If it's recurring, projecting into a pay period interval is tricky 
-        // because a bill might occur multiple times or not at all depending on frequency.
-        // For now, if the filter is "Next Pay Period", show the next likely occurrence.
-        if (filterPeriod === 'next' && bill.isRecurring) {
-            // Very simple advancement for display
-            const next = new Date(billDate);
-            if (bill.occurrence === 'Every Week') next.setDate(next.getDate() + 7);
-            else if (bill.occurrence === 'Every Other Week') next.setDate(next.getDate() + 14);
-            else next.setMonth(next.getMonth() + 1);
-            return formatDate(next);
-        }
-    }
-
-    return bill.dueDate;
-};
 
 export const getBillAlertStatus = (dueDateStr: string, bufferDays: number): 'overdue' | 'upcoming' | 'none' => {
     const today = new Date();

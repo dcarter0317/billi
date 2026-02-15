@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { View, StyleSheet, TouchableOpacity, FlatList, Switch, KeyboardAvoidingView, Platform, Alert, ScrollView } from 'react-native';
-import { Text, Card, useTheme, FAB, Searchbar, IconButton, Menu, Divider, Checkbox, Button, Portal } from 'react-native-paper';
+import { Text, Card, useTheme, FAB, Searchbar, IconButton, Menu, Divider, Checkbox, Button, Portal, Avatar } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 
@@ -11,7 +11,9 @@ import DraggableFlatList, {
 
 import { useBills, Bill } from '../../context/BillContext';
 import { usePreferences } from '../../context/UserPreferencesContext';
-import { MONTHS, parseDate, getPayPeriodInterval, getBillStatusColor, getDisplayDate, getBillAlertStatus } from '../../utils/date';
+import { MONTHS, parseDate, getPayPeriodInterval, getBillStatusColor, getBillAlertStatus, formatDate } from '../../utils/date';
+import { getCurrencySymbol } from '../../utils/currency';
+import { CATEGORY_ICONS } from '../../constants/categories';
 import { useIsFocused } from '@react-navigation/native';
 
 
@@ -31,7 +33,7 @@ export default function BillsScreen() {
     const [selectedMonth, setSelectedMonth] = useState(-1);
     const [showMonthMenu, setShowMonthMenu] = useState(false);
 
-    const currencySymbol = preferences.currency === 'EUR' ? '€' : '$';
+    const currencySymbol = getCurrencySymbol(preferences.currency);
 
     const deleteBill = (id: string) => {
         Alert.alert(
@@ -86,14 +88,8 @@ export default function BillsScreen() {
             if (filterPeriod === 'monthly') {
                 if (selectedMonth === -1) return true;
 
-                // Show if it matches exactly
+                // Show bills whose current due date falls in the selected month
                 if (billDate.getMonth() === selectedMonth && billDate.getFullYear() === currentYear) return true;
-
-                // For recurring bills, project into future months
-                if (bill.isRecurring) {
-                    if (billDate.getFullYear() < currentYear) return true;
-                    if (billDate.getFullYear() === currentYear && selectedMonth > billDate.getMonth()) return true;
-                }
                 return false;
             }
 
@@ -132,6 +128,12 @@ export default function BillsScreen() {
                     (item.isPaid || item.isCleared) && styles.settledCard
                 ]}>
                     <Card.Content style={styles.cardContent}>
+                        <Avatar.Icon
+                            size={40}
+                            icon={CATEGORY_ICONS[item.category as keyof typeof CATEGORY_ICONS] || 'star'}
+                            style={{ backgroundColor: theme.colors.surfaceVariant, marginRight: 12 }}
+                            color={theme.colors.onSurfaceVariant}
+                        />
                         <View style={styles.cardLeft}>
                             <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
                                 <Text variant="titleMedium" style={{ fontWeight: 'bold' }}>{item.title}</Text>
@@ -161,7 +163,7 @@ export default function BillsScreen() {
                                 })()}
                             </View>
                             <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
-                                Due {getDisplayDate(item, filterPeriod, selectedMonth)}
+                                Due {item.dueDate}
                                 {item.occurrence === 'Installments' && item.paymentHistory && item.paymentHistory.length > 0 && (
                                     <Text style={{ color: (theme.colors as any).success || theme.colors.primary }}>
                                         {' • '}Last paid: {item.paymentHistory[item.paymentHistory.length - 1].date}
@@ -251,7 +253,7 @@ export default function BillsScreen() {
                                         color={(theme.colors as any).success || theme.colors.primary}
                                     />
                                     <Text variant="labelSmall" style={styles.clearedText}>
-                                        {item.isCleared && item.clearedDate ? `Cleared on ${item.clearedDate}` : 'Payment Cleared'}
+                                        {item.isCleared && item.clearedDate ? `Cleared on ${formatDate(parseDate(item.clearedDate))}` : 'Payment Cleared'}
                                     </Text>
                                 </View>
                             </View>
@@ -405,11 +407,11 @@ export default function BillsScreen() {
 
                             {filterPeriod !== 'all' && filterPeriod !== 'monthly' && (
                                 <Text variant="labelSmall" style={styles.helperText}>
-                                    Filtering: {intervals[filterPeriod as keyof typeof intervals].start.toLocaleDateString()} - {intervals[filterPeriod as keyof typeof intervals].end.toLocaleDateString()}
+                                    Filtering: {formatDate(intervals[filterPeriod as keyof typeof intervals].start)} - {formatDate(intervals[filterPeriod as keyof typeof intervals].end)}
                                 </Text>
                             )}
 
-                            {filterPeriod === 'monthly' && (
+                            {filterPeriod === 'monthly' && selectedMonth >= 0 && (
                                 <Text variant="labelSmall" style={styles.helperText}>
                                     Showing bills for {MONTHS[selectedMonth]} {new Date().getFullYear()}
                                 </Text>

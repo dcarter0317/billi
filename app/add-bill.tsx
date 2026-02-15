@@ -8,33 +8,11 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { useBills, Bill } from '../context/BillContext';
 import { usePreferences } from '../context/UserPreferencesContext';
 import { formatDate, parseDate } from '../utils/date';
+import { getCurrencySymbol } from '../utils/currency';
+import { CATEGORIES } from '../constants/categories';
 
-const OCCURRENCES = ['Every Month', 'Every Week', 'Twice a Week', 'Twice a Month', 'Every Other Week', 'Installments'];
+const OCCURRENCES = ['Every Month', 'Every Week', 'Twice a Week', 'Twice a Month', 'Every Other Week', 'Every Quarter', 'Every Year', 'Installments'];
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-
-const CATEGORIES = [
-    'Housing',
-    'Utilities',
-    'Food & Dining',
-    'Transportation',
-    'Entertainment',
-    'Health & Fitness',
-    'Shopping',
-    'Insurance',
-    'Personal Care',
-    'Education',
-    'Subscriptions',
-    'Investments',
-    'Debt & Loans',
-    'Credit Card',
-    'Student Loan',
-    'Gifts & Donations',
-    'Taxes',
-    'Travel',
-    'Pets',
-    'Other',
-    'Custom'
-];
 
 
 
@@ -55,7 +33,7 @@ export default function AddBillScreen() {
     };
     const { preferences } = usePreferences();
 
-    const currencySymbol = preferences.currency === 'EUR' ? '€' : '$';
+    const currencySymbol = getCurrencySymbol(preferences.currency);
 
     // Safety check for ID and other params
     const id = Array.isArray(params.id) ? params.id[0] : params.id;
@@ -64,13 +42,8 @@ export default function AddBillScreen() {
     // Find the bill in context if we're editing
     const editingBill = isEdit ? bills.find(b => b.id === id) : null;
 
-    console.log('AddBillScreen [Mount] ID:', id, 'isEdit:', isEdit, 'Found Bill:', !!editingBill);
-
     // Helper for date parsing (MM-DD-YYYY) to Date object
-    const parseFormattedDate = (dateStr?: string) => {
-        if (!dateStr) return new Date();
-        return parseDate(dateStr);
-    };
+    const safeParseDate = (dateStr?: string) => dateStr ? parseDate(dateStr) : new Date();
 
     const [title, setTitle] = useState('');
     const [amount, setAmount] = useState('');
@@ -107,7 +80,7 @@ export default function AddBillScreen() {
         if (editingBill) {
             setTitle(editingBill.title || '');
             setAmount(editingBill.amount || '');
-            setDate(parseFormattedDate(editingBill.dueDate));
+            setDate(safeParseDate(editingBill.dueDate));
 
             // Category logic
             if (editingBill.category && !CATEGORIES.includes(editingBill.category)) {
@@ -126,7 +99,7 @@ export default function AddBillScreen() {
             if (editingBill.totalInstallments != null) setTotalInstallments(editingBill.totalInstallments.toString());
             if (editingBill.paidInstallments != null) setPaidInstallments(editingBill.paidInstallments.toString());
             if (editingBill.totalInstallmentAmount) setInstallmentTotalAmount(editingBill.totalInstallmentAmount);
-            if (editingBill.installmentStartDate) setInstallmentStartDate(parseFormattedDate(editingBill.installmentStartDate));
+            if (editingBill.installmentStartDate) setInstallmentStartDate(safeParseDate(editingBill.installmentStartDate));
             if (editingBill.installmentEndDate) setInstallmentEndDate(editingBill.installmentEndDate);
             if (editingBill.installmentRecurrence) setInstallmentRecurrence(editingBill.installmentRecurrence);
             setNotes(editingBill.notes || '');
@@ -182,25 +155,11 @@ export default function AddBillScreen() {
                 const firstDay = sortedDays[0];
                 nextDate.setDate(today.getDate() + (7 - currentDay + firstDay));
             }
-        } else if (freq.includes('Month') || freq === 'Installments') {
-            // Month logic similar... 
-            // Find next date >= currentDate
+        } else if (freq.includes('Month') || freq === 'Installments' || freq === 'Every Quarter' || freq === 'Every Year') {
+            // Set to the selected day in the current month — don't auto-advance
+            // The bill lifecycle will advance the date when it's paid
             const sortedDays = [...days].sort((a, b) => a - b);
-            const nextDay = sortedDays.find(d => d >= currentDate);
-
-            if (nextDay !== undefined) {
-                // Due later this month
-                // Validate if day exists in this month (e.g. 31st in Feb)
-                // Simple logic: setDate. JS auto-adjusts (e.g. Feb 30 -> Mar 2), which might be okay or not.
-                // Better: Check max days in current month.
-                nextDate.setDate(nextDay);
-                // If rolling over month (e.g. today is Jan 31, set Feb 31 -> Mar 3), handle strictly?
-                // Let's stick to simple JS Date behavior for now or just simple setDate.
-            } else {
-                // Next month
-                nextDate.setMonth(nextDate.getMonth() + 1);
-                nextDate.setDate(sortedDays[0]);
-            }
+            nextDate.setDate(sortedDays[0]);
         }
         return nextDate;
     };
@@ -221,7 +180,7 @@ export default function AddBillScreen() {
         // So for Monthly, maybe keep it enabling the calendar picker? 
         // But we have "Day of Month" picker too.
         // Let's enforce the Day Picker for all recurring to be consistent.
-        if ((occurrence.includes('Month') || occurrence === 'Installments') && dueDays.length > 0) {
+        if ((occurrence.includes('Month') || occurrence === 'Installments' || occurrence === 'Every Quarter' || occurrence === 'Every Year') && dueDays.length > 0) {
             const next = calculateNextDueDate(dueDays, occurrence);
             setDate(next);
         }
@@ -281,12 +240,12 @@ export default function AddBillScreen() {
         setSaving(true);
         try {
             const finalDueDate = formatDate(date);
-            console.log('AddBillScreen [handleSave] isEdit:', isEdit, 'ID:', id);
+
 
             if (isEdit && id) {
                 const finalCategory = category === 'Custom' ? customCategory : category;
 
-                console.log('AddBillScreen -> updateBill:', id);
+
                 await updateBill(id, {
                     title,
                     amount,
@@ -309,7 +268,7 @@ export default function AddBillScreen() {
             } else {
                 const finalCategory = category === 'Custom' ? customCategory : category;
 
-                console.log('AddBillScreen -> addBill');
+
                 await addBill({
                     title,
                     amount,
@@ -361,6 +320,21 @@ export default function AddBillScreen() {
                                 style={styles.input}
                                 placeholder="e.g. Electric Company"
                             />
+
+                            {/* Amount (shown for non-Installments) */}
+                            {occurrence !== 'Installments' && (
+                                <TextInput
+                                    label="Amount"
+                                    value={amount}
+                                    onChangeText={setAmount}
+                                    mode="outlined"
+                                    keyboardType="decimal-pad"
+                                    style={styles.input}
+                                    placeholder="0.00"
+                                    left={<TextInput.Affix text={currencySymbol} />}
+                                    contentStyle={{ paddingLeft: 24 }}
+                                />
+                            )}
 
                             {/* Frequency Selection */}
                             <TouchableOpacity
@@ -547,17 +521,6 @@ export default function AddBillScreen() {
                                 </View>
                             ) : (
                                 <View>
-                                    <TextInput
-                                        label="Amount"
-                                        value={amount}
-                                        onChangeText={setAmount}
-                                        mode="outlined"
-                                        keyboardType="decimal-pad"
-                                        style={styles.input}
-                                        placeholder="0.00"
-                                        left={<TextInput.Affix text={currencySymbol} />}
-                                        contentStyle={{ paddingLeft: 24 }}
-                                    />
 
                                     {/* Due specifics based on Frequency */}
                                     <TouchableOpacity

@@ -5,12 +5,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { PieChart } from 'react-native-gifted-charts';
 import { useBills } from '../../context/BillContext';
 import { usePreferences } from '../../context/UserPreferencesContext';
+import { getCurrencySymbol } from '../../utils/currency';
 
 export default function BudgetScreen() {
     const theme = useTheme();
     const { bills } = useBills();
     const { preferences } = usePreferences();
-    const currencySymbol = preferences.currency === 'EUR' ? '€' : '$';
+    const currencySymbol = getCurrencySymbol(preferences.currency);
 
     // Calculate totals by category
     const categoryData = React.useMemo(() => {
