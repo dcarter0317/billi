@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { parseDate, formatDate } from '../utils/date';
+import { parseDate, formatDate, calculateNextDueDate } from '../utils/date';
 import { supabase } from '../services/supabase';
 import { useUser } from './UserContext';
 
@@ -61,7 +61,7 @@ export function BillProvider({ children }: { children: ReactNode }) {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    const { user, isSignedIn } = useUser();
+    const { user, isSignedIn, isLoaded } = useUser();
 
     interface DbBill {
         id: string;
@@ -74,12 +74,17 @@ export function BillProvider({ children }: { children: ReactNode }) {
         cleared_date: string | null;
         category: string;
         order: number;
-        occurrence: string;
+        occurrence: string | null;
         due_days: number[] | null;
         total_installments: number | null;
         paid_installments: number | null;
         is_recurring: boolean;
         notes: string | null;
+        total_installment_amount: number | null;
+        installment_start_date: string | null;
+        installment_end_date: string | null;
+        installment_recurrence: string | null;
+        remaining_balance: number | null;
     }
 
     const mapDbBillToLocal = (dbBill: DbBill): Bill => ({
@@ -97,7 +102,12 @@ export function BillProvider({ children }: { children: ReactNode }) {
         totalInstallments: dbBill.total_installments ?? undefined,
         paidInstallments: dbBill.paid_installments ?? undefined,
         isRecurring: dbBill.is_recurring || false,
-        notes: dbBill.notes || ''
+        notes: dbBill.notes || '',
+        totalInstallmentAmount: dbBill.total_installment_amount?.toString() ?? undefined,
+        installmentStartDate: dbBill.installment_start_date ? formatDate(parseDate(dbBill.installment_start_date)) : undefined,
+        installmentEndDate: dbBill.installment_end_date ? formatDate(parseDate(dbBill.installment_end_date)) : undefined,
+        installmentRecurrence: (dbBill.installment_recurrence as Bill['installmentRecurrence']) ?? undefined,
+        remainingBalance: dbBill.remaining_balance?.toString() ?? undefined,
     });
 
     const toDbDate = (dateStr: string): string => {
@@ -126,10 +136,18 @@ export function BillProvider({ children }: { children: ReactNode }) {
         if (bill.isRecurring !== undefined) db.is_recurring = bill.isRecurring;
         if (bill.notes !== undefined) db.notes = bill.notes;
         if (bill.order !== undefined) db.order = bill.order;
+        if (bill.totalInstallmentAmount !== undefined) db.total_installment_amount = bill.totalInstallmentAmount ? parseFloat(bill.totalInstallmentAmount) : null;
+        if (bill.installmentStartDate !== undefined) db.installment_start_date = bill.installmentStartDate ? toDbDate(bill.installmentStartDate) : null;
+        if (bill.installmentEndDate !== undefined) db.installment_end_date = bill.installmentEndDate ? toDbDate(bill.installmentEndDate) : null;
+        if (bill.installmentRecurrence !== undefined) db.installment_recurrence = bill.installmentRecurrence;
+        if (bill.remainingBalance !== undefined) db.remaining_balance = bill.remainingBalance ? parseFloat(bill.remainingBalance) : null;
         return db;
     };
 
     const refreshBills = async () => {
+        if (!isLoaded || (isSignedIn && !user)) {
+            return;
+        }
         setLoading(true);
         try {
             if (isSignedIn && user) {
@@ -218,7 +236,7 @@ export function BillProvider({ children }: { children: ReactNode }) {
 
     useEffect(() => {
         refreshBills();
-    }, [isSignedIn, user?.id]);
+    }, [isLoaded, isSignedIn, user?.id]);
 
     const addBill = async (bill: Omit<Bill, 'id'>) => {
         setLoading(true);
@@ -332,70 +350,8 @@ export function BillProvider({ children }: { children: ReactNode }) {
         }
     };
 
-    const calculateNextDueDate = (bill: Bill): Date | null => {
-        const currentDueDate = parseDate(bill.dueDate);
-        let nextDueDate = new Date(currentDueDate);
 
-        if (bill.dueDays && bill.dueDays.length > 0) {
-            const sortedDays = [...bill.dueDays].sort((a, b) => a - b);
-            const occurrence = bill.occurrence || 'Every Month';
-            if (occurrence.includes('Week')) {
-                const currentDay = currentDueDate.getDay();
-                const nextDay = sortedDays.find(d => d > currentDay);
-                if (nextDay !== undefined) {
-                    nextDueDate.setDate(currentDueDate.getDate() + (nextDay - currentDay));
-                } else {
-                    nextDueDate.setDate(currentDueDate.getDate() + (7 - currentDay + sortedDays[0]));
-                }
-            } else {
-                const currentDate = currentDueDate.getDate();
-                const nextDay = sortedDays.find(d => d > currentDate);
-                if (nextDay !== undefined) {
-                    nextDueDate.setDate(nextDay);
-                    if (nextDueDate.getDate() !== nextDay) nextDueDate.setDate(0);
-                } else {
-                    nextDueDate.setMonth(currentDueDate.getMonth() + 1);
-                    nextDueDate.setDate(sortedDays[0]);
-                    if (nextDueDate.getDate() !== sortedDays[0]) nextDueDate.setDate(0);
-                }
-            }
-        } else {
-            switch (bill.occurrence) {
-                case 'Every Week':
-                    nextDueDate.setDate(currentDueDate.getDate() + 7);
-                    break;
-                case 'Every Other Week':
-                    nextDueDate.setDate(currentDueDate.getDate() + 14);
-                    break;
-                case 'Twice a Month':
-                    nextDueDate.setDate(currentDueDate.getDate() + 15);
-                    break;
-                case 'Twice a Week':
-                    nextDueDate.setDate(currentDueDate.getDate() + 3);
-                    break;
-                case 'Installments':
-                    if (bill.installmentRecurrence === 'bi-weekly') {
-                        nextDueDate.setDate(currentDueDate.getDate() + 14);
-                    } else {
-                        nextDueDate.setMonth(currentDueDate.getMonth() + 1);
-                    }
-                    break;
-                case 'Every Quarter':
-                    nextDueDate.setMonth(currentDueDate.getMonth() + 3);
-                    break;
-                case 'Every Year':
-                    nextDueDate.setFullYear(currentDueDate.getFullYear() + 1);
-                    break;
-                default:
-                    nextDueDate.setMonth(currentDueDate.getMonth() + 1);
-            }
-        }
 
-        if (nextDueDate.getTime() !== currentDueDate.getTime()) {
-            return nextDueDate;
-        }
-        return null;
-    };
 
     const toggleBillStatus = async (id: string) => {
         const bill = bills.find((b: Bill) => b.id === id);
@@ -425,10 +381,20 @@ export function BillProvider({ children }: { children: ReactNode }) {
     };
 
     const deletePaymentRecord = async (billId: string, recordId: string) => {
-        // This was previously for installments in payment history. 
-        // We might need to implement a 'payment_records' table if we want this full backend.
-        // For now, let's keep it local or partial. 
-        console.warn('deletePaymentRecord not yet fully implemented for backend.');
+        const bill = bills.find(b => b.id === billId);
+        if (!bill || !bill.paymentHistory) return;
+
+        const updatedHistory = bill.paymentHistory.filter(r => r.id !== recordId);
+        const newPaidInstallments = updatedHistory.length;
+        const remainingBalance = bill.totalInstallmentAmount
+            ? ((parseFloat(bill.totalInstallmentAmount) || 0) - ((parseFloat(bill.amount) || 0) * newPaidInstallments)).toFixed(2)
+            : undefined;
+
+        await updateBill(billId, {
+            paymentHistory: updatedHistory,
+            paidInstallments: newPaidInstallments,
+            remainingBalance,
+        });
     };
 
     const toggleClearStatus = async (id: string) => {
@@ -441,6 +407,17 @@ export function BillProvider({ children }: { children: ReactNode }) {
         if (newIsCleared) {
             await recordTransaction(bill, 'CLEARED');
             updates.clearedDate = formatDate(new Date());
+
+            // Advance recurring bills to the next cycle
+            if (bill.isRecurring && bill.occurrence !== 'One Time') {
+                const nextDate = calculateNextDueDate(bill);
+                if (nextDate) {
+                    updates.dueDate = formatDate(nextDate);
+                    updates.isPaid = false;
+                    updates.isCleared = false;
+                    updates.clearedDate = undefined;
+                }
+            }
         } else {
             updates.clearedDate = undefined;
         }

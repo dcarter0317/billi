@@ -1,55 +1,31 @@
 import React, { useState, useMemo } from 'react';
 import { View, ScrollView, StyleSheet, TouchableOpacity, Alert } from 'react-native';
-import { Text, Card, useTheme, Button, Avatar, Menu, Divider, Searchbar, IconButton, ActivityIndicator } from 'react-native-paper';
+import { Text, Card, useTheme, Avatar, IconButton, ActivityIndicator } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import { useBills, Bill } from '../../context/BillContext';
-import { usePreferences } from '../../context/UserPreferencesContext';
-import { MONTHS, parseDate, getPayPeriodInterval, formatDate } from '../../utils/date';
+import { parseDate, formatDate } from '../../utils/date';
 import { supabase } from '../../services/supabase';
 import { useUser } from '../../context/UserContext';
-import { CATEGORIES, CATEGORY_ICONS } from '../../constants/categories';
+import { CATEGORY_ICONS } from '../../constants/categories';
 import { getCurrencySymbol } from '../../utils/currency';
-
-export interface Transaction {
-    id: string;
-    user_id: string;
-    bill_id: string | null;
-    title: string;
-    amount: string;
-    category: string;
-    transaction_date: string;
-    settlement_type: 'PAID' | 'CLEARED';
-    notes?: string;
-}
-
-
+import FilterBar from '../../components/FilterBar';
+import { useBillFilters } from '../../hooks/useBillFilters';
+import { Transaction } from '../../types';
+import { sharedStyles } from '../../constants/sharedStyles';
 
 export default function HistoryScreen() {
     const theme = useTheme();
     const router = useRouter();
     const { bills, deleteBill } = useBills();
     const { user, isSignedIn } = useUser();
-    const { preferences } = usePreferences();
-    const [transactions, setTransactions] = useState<Transaction[]>([]);
-    const [loading, setLoading] = useState(false);
-    const [filterPeriod, setFilterPeriod] = useState<'last' | 'this' | 'next' | 'all' | 'monthly'>('all');
-    const [selectedMonth, setSelectedMonth] = useState(-1);
-    const [showMonthMenu, setShowMonthMenu] = useState(false);
-    const [searchQuery, setSearchQuery] = useState('');
-
-    // Category Filter State
-    const [selectedCategory, setSelectedCategory] = useState<string>('All');
-    const [showCategoryMenu, setShowCategoryMenu] = useState(false);
-
+    const filters = useBillFilters('all');
+    const { filterPeriod, selectedMonth, searchQuery, selectedCategory, intervals, preferences } = filters;
     const currencySymbol = getCurrencySymbol(preferences.currency);
 
-    const intervals = useMemo(() => ({
-        last: getPayPeriodInterval(preferences.payPeriodStart, preferences.payPeriodOccurrence, -1, preferences.payPeriodSemiMonthlyDays),
-        this: getPayPeriodInterval(preferences.payPeriodStart, preferences.payPeriodOccurrence, 0, preferences.payPeriodSemiMonthlyDays),
-        next: getPayPeriodInterval(preferences.payPeriodStart, preferences.payPeriodOccurrence, 1, preferences.payPeriodSemiMonthlyDays),
-    }), [preferences.payPeriodStart, preferences.payPeriodOccurrence, preferences.payPeriodSemiMonthlyDays]);
+    const [transactions, setTransactions] = useState<Transaction[]>([]);
+    const [loading, setLoading] = useState(false);
 
     const fetchTransactions = async () => {
         if (!isSignedIn || !user) return;
@@ -76,10 +52,7 @@ export default function HistoryScreen() {
     );
 
     const { settledBills, paidTotal } = useMemo(() => {
-        // When signed in, we exclusively use the transactions from Supabase
-        // Otherwise, fall back to local bills that are marked paid/cleared
         let source: (Transaction | Bill)[] = [];
-
         if (isSignedIn && user) {
             source = transactions;
         } else {
@@ -92,16 +65,8 @@ export default function HistoryScreen() {
             const category = item.category;
             const dateStr = isTransaction ? (item as Transaction).transaction_date : (item as Bill).dueDate;
 
-            // Apply Search Filter
-            if (searchQuery.length > 0 && !title.toLowerCase().includes(searchQuery.toLowerCase())) {
-                return false;
-            }
-
-            // Apply Category Filter
-            if (selectedCategory !== 'All' && category !== selectedCategory) {
-                return false;
-            }
-
+            if (searchQuery.length > 0 && !title.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+            if (selectedCategory !== 'All' && category !== selectedCategory) return false;
             if (filterPeriod === 'all') return true;
 
             const date = parseDate(dateStr);
@@ -114,7 +79,6 @@ export default function HistoryScreen() {
             return date >= interval.start && date <= interval.end;
         });
 
-        // Sort: Newest first
         const sorted = pertinent.sort((a, b) => {
             const dateA = parseDate('transaction_date' in a ? a.transaction_date : a.dueDate).getTime();
             const dateB = parseDate('transaction_date' in b ? b.transaction_date : b.dueDate).getTime();
@@ -122,13 +86,14 @@ export default function HistoryScreen() {
         });
 
         const total = sorted.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
-
         return { settledBills: sorted, paidTotal: total };
     }, [filterPeriod, selectedMonth, intervals, bills, transactions, searchQuery, selectedCategory, isSignedIn, user]);
 
+    const isFiltered = searchQuery.length > 0 || selectedCategory !== 'All';
+
     return (
-        <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
-            <View style={styles.content}>
+        <SafeAreaView style={[sharedStyles.container, { backgroundColor: theme.colors.background }]}>
+            <View style={sharedStyles.content}>
                 <View style={styles.header}>
                     <Text variant="headlineMedium" style={{ fontWeight: 'bold' }}>Recent Activity</Text>
                 </View>
@@ -137,7 +102,7 @@ export default function HistoryScreen() {
                 <Card style={[styles.balanceCard, { backgroundColor: theme.colors.primary }]}>
                     <Card.Content>
                         <Text variant="labelLarge" style={{ color: theme.colors.onPrimary, opacity: 0.9 }}>
-                            {searchQuery.length > 0 || selectedCategory !== 'All' ? 'Paid (Filtered)' : (filterPeriod === 'all' ? 'Total Paid (All Time)' : 'Paid (This Period)')}
+                            {isFiltered ? 'Paid (Filtered)' : (filterPeriod === 'all' ? 'Total Paid (All Time)' : 'Paid (This Period)')}
                         </Text>
                         <Text variant="displayMedium" style={{ fontWeight: 'bold', marginVertical: 8, color: theme.colors.onPrimary }}>
                             {currencySymbol}{paidTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -146,148 +111,10 @@ export default function HistoryScreen() {
                 </Card>
 
                 <View style={styles.filterSection}>
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                        <View style={{ flexDirection: 'row' }}>
-                            {/* Category Filter */}
-                            <Menu
-                                visible={showCategoryMenu}
-                                onDismiss={() => setShowCategoryMenu(false)}
-                                anchor={
-                                    <TouchableOpacity
-                                        onPress={() => setShowCategoryMenu(true)}
-                                        style={[
-                                            styles.filterChip,
-                                            selectedCategory !== 'All' && { backgroundColor: theme.colors.primaryContainer }
-                                        ]}
-                                    >
-                                        <Text
-                                            variant="labelSmall"
-                                            style={[
-                                                styles.filterChipText,
-                                                { color: selectedCategory !== 'All' ? theme.colors.onPrimaryContainer : theme.colors.onSurfaceVariant }
-                                            ]}
-                                        >
-                                            {selectedCategory === 'All' ? 'Category' : selectedCategory}
-                                        </Text>
-                                    </TouchableOpacity>
-                                }
-                            >
-                                <ScrollView style={{ maxHeight: 300 }}>
-                                    <Menu.Item
-                                        onPress={() => {
-                                            setSelectedCategory('All');
-                                            setShowCategoryMenu(false);
-                                        }}
-                                        title="All Categories"
-                                        leadingIcon={selectedCategory === 'All' ? 'check' : undefined}
-                                    />
-                                    <Divider />
-                                    {CATEGORIES.map((cat) => (
-                                        <Menu.Item
-                                            key={cat}
-                                            onPress={() => {
-                                                setSelectedCategory(cat);
-                                                setShowCategoryMenu(false);
-                                            }}
-                                            title={cat}
-                                            leadingIcon={selectedCategory === cat ? 'check' : undefined}
-                                        />
-                                    ))}
-                                </ScrollView>
-                            </Menu>
-
-                            {/* Month Filter */}
-                            <Menu
-                                visible={showMonthMenu}
-                                onDismiss={() => setShowMonthMenu(false)}
-                                anchor={
-                                    <TouchableOpacity
-                                        onPress={() => {
-                                            setFilterPeriod('monthly');
-                                            setShowMonthMenu(true);
-                                        }}
-                                        style={[
-                                            styles.filterChip,
-                                            filterPeriod === 'monthly' && { backgroundColor: theme.colors.primaryContainer }
-                                        ]}
-                                    >
-                                        <Text
-                                            variant="labelSmall"
-                                            style={[
-                                                styles.filterChipText,
-                                                { color: filterPeriod === 'monthly' ? theme.colors.onPrimaryContainer : theme.colors.onSurfaceVariant }
-                                            ]}
-                                        >
-                                            {selectedMonth === -1 ? 'Select Month' : MONTHS[selectedMonth]}
-                                        </Text>
-                                    </TouchableOpacity>
-                                }
-                            >
-                                <ScrollView style={{ maxHeight: 300 }}>
-                                    <Menu.Item
-                                        onPress={() => {
-                                            setSelectedMonth(-1);
-                                            setFilterPeriod('monthly');
-                                            setShowMonthMenu(false);
-                                        }}
-                                        title="Select Month"
-                                        leadingIcon={selectedMonth === -1 ? 'check' : undefined}
-                                    />
-                                    <Divider />
-                                    {MONTHS.map((month, index) => (
-                                        <Menu.Item
-                                            key={month}
-                                            onPress={() => {
-                                                setSelectedMonth(index);
-                                                setFilterPeriod('monthly');
-                                                setShowMonthMenu(false);
-                                            }}
-                                            title={month}
-                                            leadingIcon={selectedMonth === index ? 'check' : undefined}
-                                        />
-                                    ))}
-                                </ScrollView>
-                            </Menu>
-                        </View>
-                    </View>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll}>
-                        {(['last', 'this', 'next', 'all'] as const).map((period) => (
-                            <TouchableOpacity
-                                key={period}
-                                onPress={() => setFilterPeriod(period)}
-                                style={[
-                                    styles.filterChip,
-                                    filterPeriod === period && { backgroundColor: theme.colors.primaryContainer }
-                                ]}
-                            >
-                                <Text
-                                    variant="labelSmall"
-                                    style={[
-                                        styles.filterChipText,
-                                        { color: filterPeriod === period ? theme.colors.onPrimaryContainer : theme.colors.onSurfaceVariant }
-                                    ]}
-                                >
-                                    {(() => {
-                                        if (period === 'all') return 'All Time';
-                                        const isMonthly = preferences.payPeriodOccurrence === 'monthly';
-                                        switch (period) {
-                                            case 'last': return isMonthly ? 'Last Month' : 'Last Pay Period';
-                                            case 'this': return isMonthly ? 'This Month' : 'Current Pay Period';
-                                            case 'next': return isMonthly ? 'Next Month' : 'Next Pay Period';
-                                            default: return period;
-                                        }
-                                    })()}
-                                </Text>
-                            </TouchableOpacity>
-                        ))}
-                    </ScrollView>
-
-                    <Searchbar
-                        placeholder="Search history"
-                        onChangeText={setSearchQuery}
-                        value={searchQuery}
-                        style={styles.searchBar}
-                        inputStyle={{ minHeight: 0 }}
+                    <FilterBar
+                        filters={filters}
+                        allLabel="All Time"
+                        searchPlaceholder="Search history"
                     />
                 </View>
 
@@ -298,7 +125,7 @@ export default function HistoryScreen() {
                             <Text variant="bodyMedium" style={{ marginTop: 16, opacity: 0.6 }}>Fetching history...</Text>
                         </View>
                     ) : settledBills.length > 0 ? settledBills.map((item: any) => (
-                        <Card key={item.id} style={[styles.billCard, styles.settledCard]}>
+                        <Card key={item.id} style={[styles.billCard, sharedStyles.settledCard]}>
                             <Card.Title
                                 title={item.title}
                                 titleStyle={{ opacity: 0.7 }}
@@ -307,8 +134,8 @@ export default function HistoryScreen() {
                                         <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, opacity: 0.7 }}>
                                             Settled on {('transaction_date' in item) ? formatDate(new Date(item.transaction_date)) : (formatDate(parseDate((item as Bill).clearedDate || (item as Bill).dueDate)))}
                                         </Text>
-                                        <View style={[styles.categoryBadge, { flexDirection: 'row', alignItems: 'center', gap: 6, opacity: 0.6 }]}>
-                                            <Text variant="labelSmall" style={styles.categoryText}>
+                                        <View style={[sharedStyles.categoryBadge, { flexDirection: 'row', alignItems: 'center', gap: 6, opacity: 0.6 }]}>
+                                            <Text variant="labelSmall" style={sharedStyles.categoryText}>
                                                 {item.category}
                                             </Text>
                                             <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: theme.colors.onSurfaceVariant, opacity: 0.3 }} />
@@ -347,14 +174,11 @@ export default function HistoryScreen() {
                                                                 style: 'destructive',
                                                                 onPress: async () => {
                                                                     try {
-                                                                        // Delete all transactions for this bill
                                                                         await supabase
                                                                             .from('transactions')
                                                                             .delete()
                                                                             .eq('bill_id', item.bill_id);
-                                                                        // Delete the bill itself
                                                                         await deleteBill(item.bill_id);
-                                                                        // Refresh history
                                                                         fetchTransactions();
                                                                     } catch (err) {
                                                                         console.error('Error deleting:', err);
@@ -371,7 +195,7 @@ export default function HistoryScreen() {
                             />
                         </Card>
                     )) : (
-                        <View style={styles.emptyContainer}>
+                        <View style={sharedStyles.emptyContainer}>
                             <IconButton icon="history" size={48} iconColor={theme.colors.onSurfaceVariant} style={{ opacity: 0.5 }} />
                             <Text variant="bodyLarge" style={{ color: theme.colors.onSurfaceVariant, textAlign: 'center' }}>
                                 No transaction history found!
@@ -385,13 +209,6 @@ export default function HistoryScreen() {
 }
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-    },
-    content: {
-        flex: 1,
-        padding: 16,
-    },
     header: {
         marginBottom: 24,
     },
@@ -402,56 +219,9 @@ const styles = StyleSheet.create({
     filterSection: {
         marginBottom: 16,
     },
-    filterScroll: {
-        marginBottom: 12,
-    },
-    searchBar: {
-        height: 40,
-        borderRadius: 12,
-        marginBottom: 8,
-        elevation: 0,
-        backgroundColor: 'rgba(0,0,0,0.05)',
-    },
-    filterChip: {
-        paddingVertical: 4,
-        paddingHorizontal: 12,
-        borderRadius: 16,
-        marginRight: 8,
-        borderWidth: 1,
-        borderColor: 'rgba(0,0,0,0.05)',
-    },
-    filterChipText: {
-        textTransform: 'capitalize',
-        fontWeight: 'bold',
-    },
     billCard: {
         marginBottom: 12,
         paddingBottom: 5,
-    },
-    settledCard: {
-        opacity: 0.8,
-        backgroundColor: 'transparent',
-        borderWidth: 1,
-        borderColor: 'rgba(0,0,0,0.05)',
-        elevation: 0,
-    },
-    categoryBadge: {
-        marginTop: 4,
-        paddingHorizontal: 8,
-        paddingVertical: 2,
-        backgroundColor: 'rgba(0,0,0,0.1)',
-        borderRadius: 4,
-        alignSelf: 'flex-start',
-    },
-    categoryText: {
-        fontSize: 10,
-        textTransform: 'uppercase',
-        letterSpacing: 0.5,
-        fontWeight: 'bold',
-    },
-    emptyContainer: {
-        padding: 48,
-        alignItems: 'center',
     },
     loadingContainer: {
         padding: 48,

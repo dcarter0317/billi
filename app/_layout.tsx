@@ -3,7 +3,6 @@ import { View } from 'react-native';
 import { PaperProvider, Text } from "react-native-paper";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
-import { BilliTheme } from "../constants/theme";
 
 import { BillProvider } from '../context/BillContext';
 import { UserProvider, useUser } from '../context/UserContext';
