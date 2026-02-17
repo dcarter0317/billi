@@ -1,0 +1,144 @@
+version: "2"
+type: frontend
+tech_stack:
+  - TypeScript
+  - React Native
+  - Expo
+  - Expo Router
+  - react-native-paper
+  - Clerk
+  - Supabase
+routes:
+  - path: /
+    file: app/(tabs)/index.tsx
+    auth_required: false
+    description: Auth gate and home tab (auth required for tabs)
+  - path: /bills
+    file: app/(tabs)/bills.tsx
+    auth_required: true
+    description: Bills list and filters
+  - path: /budget
+    file: app/(tabs)/budget.tsx
+    auth_required: true
+    description: Budget tab
+  - path: /history
+    file: app/(tabs)/history.tsx
+    auth_required: true
+    description: Payment history tab
+  - path: /settings
+    file: app/(tabs)/settings.tsx
+    auth_required: true
+    description: Settings tab
+  - path: /add-bill
+    file: app/add-bill.tsx
+    auth_required: true
+    description: Add or edit a bill
+  - path: /profile
+    file: app/profile.tsx
+    auth_required: true
+    description: User profile
+features:
+  - name: Authentication and onboarding
+    description: Sign up, sign in, OAuth login, and name onboarding for first-time users.
+    files:
+      - components/AuthScreen.tsx
+      - components/WelcomeScreen.tsx
+      - app/_layout.tsx
+    entry_route: /
+    user_interactions:
+      - Enter email and password to sign in
+      - Create an account and verify email
+      - Use Google or Apple OAuth login
+      - Reset password with emailed code
+      - Provide display name on first login
+    api_calls:
+      - method: POST
+        endpoint: clerk/sign-in
+      - method: POST
+        endpoint: clerk/sign-up
+      - method: POST
+        endpoint: clerk/oauth
+      - method: POST
+        endpoint: clerk/reset-password
+    auth_required: false
+  - name: Bill management
+    description: Create, edit, delete, and view bills with amounts, categories, and notes.
+    files:
+      - app/(tabs)/bills.tsx
+      - app/add-bill.tsx
+      - context/BillContext.tsx
+    entry_route: /bills
+    user_interactions:
+      - View bill list
+      - Add a new bill
+      - Edit bill details
+      - Delete a bill
+    api_calls:
+      - method: GET
+        endpoint: supabase/bills
+      - method: POST
+        endpoint: supabase/bills
+      - method: PATCH
+        endpoint: supabase/bills
+      - method: DELETE
+        endpoint: supabase/bills
+    auth_required: true
+  - name: Recurring and installments
+    description: Configure recurring schedules, installments, and due-day logic.
+    files:
+      - app/add-bill.tsx
+      - app/(tabs)/bills.tsx
+      - context/BillContext.tsx
+      - utils/date.ts
+    entry_route: /add-bill
+    user_interactions:
+      - Select occurrence and due days
+      - Define installment totals and paid count
+      - Filter by month or pay period
+    api_calls: []
+    auth_required: true
+  - name: Payment status and history
+    description: Track paid or cleared bills and review settlements.
+    files:
+      - app/(tabs)/history.tsx
+      - app/(tabs)/bills.tsx
+      - context/BillContext.tsx
+    entry_route: /history
+    user_interactions:
+      - Toggle paid status
+      - Toggle cleared status
+      - Review past settlements
+    api_calls:
+      - method: GET
+        endpoint: supabase/transactions
+      - method: POST
+        endpoint: supabase/transactions
+      - method: PATCH
+        endpoint: supabase/transactions
+      - method: DELETE
+        endpoint: supabase/transactions
+    auth_required: true
+  - name: Profile and preferences
+    description: Update profile, avatar, and app preferences.
+    files:
+      - app/profile.tsx
+      - app/(tabs)/settings.tsx
+      - context/UserContext.tsx
+      - context/UserPreferencesContext.tsx
+    entry_route: /settings
+    user_interactions:
+      - Edit profile name and avatar
+      - Change theme, currency, and reminders
+      - Enable biometrics and notifications
+    api_calls:
+      - method: GET
+        endpoint: supabase/profiles
+      - method: UPSERT
+        endpoint: supabase/profiles
+      - method: DELETE
+        endpoint: supabase/profiles
+    auth_required: true
+known_limitations:
+  - issue: Tests require valid Clerk and Supabase environment variables.
+    location: services/clerk.ts
+    impact: Auth and data features fail without configured keys.

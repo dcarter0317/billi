@@ -1,4 +1,5 @@
 import 'react-native-url-polyfill/auto';
+import { Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import { createClient } from '@supabase/supabase-js';
 
@@ -9,14 +10,37 @@ const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '';
 let getClerkToken: (() => Promise<string | null>) | null = null;
 
 const ExpoSecureStoreAdapter = {
-    getItem: (key: string) => {
-        return SecureStore.getItemAsync(key);
+    getItem: (key: string) => SecureStore.getItemAsync(key),
+    setItem: (key: string, value: string) => SecureStore.setItemAsync(key, value),
+    removeItem: (key: string) => SecureStore.deleteItemAsync(key),
+};
+
+const WebStorageAdapter = {
+    getItem: async (key: string) => {
+        try {
+            return typeof window !== 'undefined' ? window.localStorage.getItem(key) : null;
+        } catch (err) {
+            console.warn('[Supabase] Failed to read web storage:', err);
+            return null;
+        }
     },
-    setItem: (key: string, value: string) => {
-        SecureStore.setItemAsync(key, value);
+    setItem: async (key: string, value: string) => {
+        try {
+            if (typeof window !== 'undefined') {
+                window.localStorage.setItem(key, value);
+            }
+        } catch (err) {
+            console.warn('[Supabase] Failed to write web storage:', err);
+        }
     },
-    removeItem: (key: string) => {
-        SecureStore.deleteItemAsync(key);
+    removeItem: async (key: string) => {
+        try {
+            if (typeof window !== 'undefined') {
+                window.localStorage.removeItem(key);
+            }
+        } catch (err) {
+            console.warn('[Supabase] Failed to remove web storage:', err);
+        }
     },
 };
 
@@ -47,7 +71,7 @@ const customFetch = async (url: string, options: any = {}) => {
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     auth: {
-        storage: ExpoSecureStoreAdapter as any,
+        storage: (Platform.OS === 'web' ? WebStorageAdapter : ExpoSecureStoreAdapter) as any,
         autoRefreshToken: true,
         persistSession: true,
         detectSessionInUrl: false,

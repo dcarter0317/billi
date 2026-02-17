@@ -1,0 +1,14 @@
+{
+  "status": "commited",
+  "type": "frontend",
+  "scope": "codebase",
+  "localEndpoint": "http://localhost:8081",
+  "executionArgs": {
+    "projectName": "billi",
+    "projectPath": "/Users/thelabadm/Documents/ai_development/billi",
+    "testIds": [],
+    "additionalInstruction": "",
+    "envs": {}
+  },
+  "serverPort": 60869
+}

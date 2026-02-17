@@ -10,11 +10,15 @@ WebBrowser.maybeCompleteAuthSession();
 
 function useWarmUpBrowser() {
     React.useEffect(() => {
-        // Warm up the android browser to improve UX
+        // Warm up the native browser to improve UX (not supported on web).
         // https://docs.expo.dev/guides/authentication/#improving-user-experience
-        void WebBrowser.warmUpAsync();
+        if (Platform.OS !== 'web') {
+            void WebBrowser.warmUpAsync();
+        }
         return () => {
-            void WebBrowser.coolDownAsync();
+            if (Platform.OS !== 'web') {
+                void WebBrowser.coolDownAsync();
+            }
         };
     }, []);
 }
@@ -33,16 +37,23 @@ export default function AuthScreen() {
     });
 
     const [isSignUp, setIsSignUp] = useState(true);
+    const [isResetting, setIsResetting] = useState(false);
+    const [resetStep, setResetStep] = useState<'request' | 'verify' | 'new_password'>('request');
+    const [resetEmail, setResetEmail] = useState('');
+    const [resetCode, setResetCode] = useState('');
+    const [newPassword, setNewPassword] = useState('');
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [name, setName] = useState('');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [emailTaken, setEmailTaken] = useState(false);
     const [pendingVerification, setPendingVerification] = useState(false);
     const [code, setCode] = useState('');
 
     const onSignInPress = async () => {
         if (!signInLoaded) return;
+        setEmailTaken(false);
         if (!email.trim() || !password.trim()) {
             setError('Please enter both email and password');
             return;
@@ -98,6 +109,7 @@ export default function AuthScreen() {
 
     const onSignUpPress = async () => {
         if (!signUpLoaded) return;
+        setEmailTaken(false);
         if (!email.trim() || !password.trim() || !name.trim()) {
             setError('All fields are required for sign up');
             return;
@@ -116,7 +128,138 @@ export default function AuthScreen() {
             setPendingVerification(true);
         } catch (err: any) {
             console.error('[Auth] Sign-up error:', err);
-            setError(err.errors?.[0]?.message || 'Failed to sign up');
+            const clerkError = err.errors?.[0];
+            const message = clerkError?.message || 'Failed to sign up';
+            const code = clerkError?.code || '';
+            const isIdentifierTaken =
+                code === 'form_identifier_exists' ||
+                code === 'identifier_already_taken' ||
+                message.toLowerCase().includes('already') ||
+                message.toLowerCase().includes('exists');
+
+            if (isIdentifierTaken) {
+                setEmailTaken(true);
+                setIsSignUp(false);
+                setPassword('');
+                setError(null);
+                return;
+            }
+
+            setError(message);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const toggleAuthMode = () => {
+        setIsSignUp(!isSignUp);
+        setError(null);
+        setEmailTaken(false);
+    };
+
+    const startResetFlow = () => {
+        setIsResetting(true);
+        setResetStep('request');
+        setResetEmail(email.trim());
+        setResetCode('');
+        setNewPassword('');
+        setError(null);
+        setEmailTaken(false);
+    };
+
+    const onRequestReset = async () => {
+        if (!signInLoaded) return;
+        if (!resetEmail.trim()) {
+            setError('Please enter your email address');
+            return;
+        }
+
+        setLoading(true);
+        setError(null);
+        try {
+            const result = await signIn.create({
+                identifier: resetEmail.trim(),
+            });
+
+            const resetFactor = result.supportedFirstFactors?.find(
+                (factor) => factor.strategy === 'reset_password_email_code'
+            );
+
+            const emailAddressId = (resetFactor as any)?.emailAddressId;
+
+            if (!emailAddressId) {
+                setError('Password reset is unavailable for this account.');
+                return;
+            }
+
+            await result.prepareFirstFactor({
+                strategy: 'reset_password_email_code',
+                emailAddressId,
+            });
+
+            setResetStep('verify');
+        } catch (err: any) {
+            console.error('[Auth] Reset request error:', err);
+            setError(err.errors?.[0]?.message || 'Failed to send reset code');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const onVerifyResetCode = async () => {
+        if (!signInLoaded) return;
+        if (!resetCode.trim()) {
+            setError('Please enter the code');
+            return;
+        }
+
+        setLoading(true);
+        setError(null);
+        try {
+            const result = await signIn.attemptFirstFactor({
+                strategy: 'reset_password_email_code',
+                code: resetCode.trim(),
+            });
+
+            if (result.status === 'needs_new_password') {
+                setResetStep('new_password');
+            } else if (result.status === 'complete' && result.createdSessionId) {
+                await setSignInActive({ session: result.createdSessionId });
+                setIsResetting(false);
+            } else {
+                setError('Unable to verify code. Please try again.');
+            }
+        } catch (err: any) {
+            console.error('[Auth] Reset code error:', err);
+            setError(err.errors?.[0]?.message || 'Failed to verify code');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const onSetNewPassword = async () => {
+        if (!signInLoaded) return;
+        if (!newPassword.trim()) {
+            setError('Please enter a new password');
+            return;
+        }
+
+        setLoading(true);
+        setError(null);
+        try {
+            const result = await signIn.resetPassword({
+                password: newPassword.trim(),
+            });
+
+            if (result.status === 'complete' && result.createdSessionId) {
+                await setSignInActive({ session: result.createdSessionId });
+                setIsResetting(false);
+            } else {
+                setError('Password reset incomplete. Please try again.');
+            }
+        } catch (err: any) {
+            console.error('[Auth] Reset password error:', err);
+            setError(err.errors?.[0]?.message || 'Failed to reset password');
         } finally {
             setLoading(false);
         }
@@ -195,6 +338,133 @@ export default function AuthScreen() {
                             >
                                 <Text variant="labelLarge" style={{ color: theme.colors.primary }}>
                                     Back to Sign Up
+                                </Text>
+                            </TouchableOpacity>
+                        </Card.Content>
+                    </Card>
+                </ScrollView>
+            </KeyboardAvoidingView>
+        );
+    }
+
+    if (isResetting) {
+        return (
+            <KeyboardAvoidingView
+                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                style={[styles.container, { backgroundColor: theme.colors.background }]}
+            >
+                <ScrollView contentContainerStyle={styles.scrollContent}>
+                    <View style={styles.header}>
+                        <Avatar.Icon size={80} icon="lock-reset" style={{ backgroundColor: theme.colors.primary }} color="white" />
+                        <Text variant="displaySmall" style={styles.title}>Reset Password</Text>
+                        <Text variant="bodyLarge" style={styles.subtitle}>
+                            {resetStep === 'request'
+                                ? 'Enter your email to receive a reset code'
+                                : resetStep === 'verify'
+                                    ? `Enter the code sent to ${resetEmail}`
+                                    : 'Set your new password'}
+                        </Text>
+                    </View>
+
+                    <Card style={styles.card}>
+                        <Card.Content style={styles.cardContent}>
+                            {resetStep === 'request' && (
+                                <TextInput
+                                    label="Email Address"
+                                    value={resetEmail}
+                                    onChangeText={setResetEmail}
+                                    mode="outlined"
+                                    style={styles.input}
+                                    keyboardType="email-address"
+                                    autoCapitalize="none"
+                                    left={<TextInput.Icon icon={() => <Mail size={20} color={theme.colors.onSurfaceVariant} />} />}
+                                    outlineColor="transparent"
+                                    activeOutlineColor={theme.colors.primary}
+                                />
+                            )}
+
+                            {resetStep === 'verify' && (
+                                <TextInput
+                                    label="Verification Code"
+                                    value={resetCode}
+                                    onChangeText={setResetCode}
+                                    mode="outlined"
+                                    style={styles.input}
+                                    keyboardType="number-pad"
+                                    left={<TextInput.Icon icon={() => <ArrowRight size={20} color={theme.colors.onSurfaceVariant} />} />}
+                                    outlineColor="transparent"
+                                    activeOutlineColor={theme.colors.primary}
+                                />
+                            )}
+
+                            {resetStep === 'new_password' && (
+                                <TextInput
+                                    label="New Password"
+                                    value={newPassword}
+                                    onChangeText={setNewPassword}
+                                    mode="outlined"
+                                    secureTextEntry
+                                    style={styles.input}
+                                    left={<TextInput.Icon icon={() => <Lock size={20} color={theme.colors.onSurfaceVariant} />} />}
+                                    outlineColor="transparent"
+                                    activeOutlineColor={theme.colors.primary}
+                                />
+                            )}
+
+                            {error && (
+                                <Text variant="bodySmall" style={[styles.error, { color: theme.colors.error }]}> 
+                                    {error}
+                                </Text>
+                            )}
+
+                            {resetStep === 'request' && (
+                                <Button
+                                    mode="contained"
+                                    onPress={onRequestReset}
+                                    loading={loading}
+                                    style={styles.button}
+                                    contentStyle={styles.buttonContent}
+                                    labelStyle={styles.buttonLabel}
+                                >
+                                    Send Reset Code
+                                </Button>
+                            )}
+
+                            {resetStep === 'verify' && (
+                                <Button
+                                    mode="contained"
+                                    onPress={onVerifyResetCode}
+                                    loading={loading}
+                                    style={styles.button}
+                                    contentStyle={styles.buttonContent}
+                                    labelStyle={styles.buttonLabel}
+                                >
+                                    Verify Code
+                                </Button>
+                            )}
+
+                            {resetStep === 'new_password' && (
+                                <Button
+                                    mode="contained"
+                                    onPress={onSetNewPassword}
+                                    loading={loading}
+                                    style={styles.button}
+                                    contentStyle={styles.buttonContent}
+                                    labelStyle={styles.buttonLabel}
+                                >
+                                    Set New Password
+                                </Button>
+                            )}
+
+                            <TouchableOpacity
+                                onPress={() => {
+                                    setIsResetting(false);
+                                    setError(null);
+                                }}
+                                style={{ marginTop: 16, alignItems: 'center' }}
+                            >
+                                <Text variant="labelLarge" style={{ color: theme.colors.primary }}>
+                                    Back to Sign In
                                 </Text>
                             </TouchableOpacity>
                         </Card.Content>
@@ -287,6 +557,46 @@ export default function AuthScreen() {
                             activeOutlineColor={theme.colors.primary}
                         />
 
+                        {!isSignUp && (
+                            <TouchableOpacity onPress={startResetFlow} style={{ alignSelf: 'flex-end', marginBottom: 8 }}>
+                                <Text variant="labelLarge" style={{ color: theme.colors.primary, fontWeight: 'bold' }}>
+                                    Forgot password?
+                                </Text>
+                            </TouchableOpacity>
+                        )}
+
+                        {emailTaken && (
+                            <Card style={styles.noticeCard}>
+                                <Card.Content style={styles.noticeContent}>
+                                    <Text variant="titleMedium" style={styles.noticeTitle}>
+                                        Email already in use
+                                    </Text>
+                                    <Text variant="bodySmall" style={styles.noticeBody}>
+                                        That email is already registered. Try signing in below, or reset your password.
+                                    </Text>
+                                    <View style={styles.noticeActions}>
+                                        <Button
+                                            mode="contained"
+                                            onPress={() => {
+                                                setIsSignUp(false);
+                                                setError(null);
+                                            }}
+                                            style={styles.noticeButton}
+                                        >
+                                            Sign In
+                                        </Button>
+                                        <Button
+                                            mode="outlined"
+                                            onPress={startResetFlow}
+                                            style={styles.noticeButton}
+                                        >
+                                            Reset Password
+                                        </Button>
+                                    </View>
+                                </Card.Content>
+                            </Card>
+                        )}
+
                         {error && (
                             <Text variant="bodySmall" style={[styles.error, { color: theme.colors.error }]}>
                                 {error}
@@ -308,7 +618,7 @@ export default function AuthScreen() {
                             <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant }}>
                                 {isSignUp ? 'Already have an account?' : "Don't have an account?"}
                             </Text>
-                            <TouchableOpacity onPress={() => setIsSignUp(!isSignUp)}>
+                            <TouchableOpacity onPress={toggleAuthMode}>
                                 <Text variant="labelLarge" style={{ color: theme.colors.primary, fontWeight: 'bold', marginLeft: 8 }}>
                                     {isSignUp ? 'Sign In' : 'Sign Up'}
                                 </Text>
@@ -352,6 +662,30 @@ const styles = StyleSheet.create({
     },
     cardContent: {
         padding: 8,
+    },
+    noticeCard: {
+        marginBottom: 16,
+        borderRadius: 16,
+        backgroundColor: 'rgba(255,255,255,0.06)',
+    },
+    noticeContent: {
+        paddingVertical: 12,
+    },
+    noticeTitle: {
+        fontWeight: 'bold',
+        marginBottom: 4,
+    },
+    noticeBody: {
+        opacity: 0.7,
+        marginBottom: 12,
+    },
+    noticeActions: {
+        flexDirection: 'row',
+        gap: 8,
+    },
+    noticeButton: {
+        flex: 1,
+        borderRadius: 12,
     },
     input: {
         marginBottom: 16,
