@@ -11,7 +11,7 @@ import { formatDate, parseDate } from '../utils/date';
 import { getCurrencySymbol } from '../utils/currency';
 import { CATEGORIES } from '../constants/categories';
 
-const OCCURRENCES = ['Every Month', 'Every Week', 'Twice a Week', 'Twice a Month', 'Every Other Week', 'Every Quarter', 'Every Year', 'Installments'];
+const OCCURRENCES = ['One Time', 'Every Month', 'Every Week', 'Twice a Week', 'Twice a Month', 'Every Other Week', 'Every Quarter', 'Every Year', 'Installments'];
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 
@@ -50,7 +50,7 @@ export default function AddBillScreen() {
     const [date, setDate] = useState(new Date());
     const [showDatePicker, setShowDatePicker] = useState(false);
     const [showStartDatePicker, setShowStartDatePicker] = useState(false);
-    const [category, setCategory] = useState('Utilities');
+    const [category, setCategory] = useState('');
     const [customCategory, setCustomCategory] = useState('');
     const [showCategoryMenu, setShowCategoryMenu] = useState(false);
     const [isPaid, setIsPaid] = useState(false);
@@ -60,7 +60,7 @@ export default function AddBillScreen() {
 
 
     // New State
-    const [occurrence, setOccurrence] = useState<NonNullable<Bill['occurrence']>>('Every Month');
+    const [occurrence, setOccurrence] = useState<NonNullable<Bill['occurrence']>>('One Time');
     const [dueDays, setDueDays] = useState<number[]>([]);
 
     // Installments State

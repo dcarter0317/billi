@@ -57,7 +57,10 @@ export default function HistoryScreen() {
     const { settledBills, paidTotal } = useMemo(() => {
         let source: (Transaction | Bill)[] = [];
         if (isSignedIn && user) {
-            source = transactions;
+            // Merge transactions with bills that are marked as paid/cleared but don't have a transaction record
+            const billTransactionIds = new Set(transactions.map(t => t.bill_id).filter(Boolean));
+            const missingPaidBills = bills.filter(b => (b.isPaid || b.isCleared) && !billTransactionIds.has(b.id));
+            source = [...transactions, ...missingPaidBills];
         } else {
             source = bills.filter(b => b.isPaid || b.isCleared);
         }
@@ -89,7 +92,6 @@ export default function HistoryScreen() {
         });
 
         const total = sorted.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
-        console.log(`[History] Source size: ${source.length}, Filtered size: ${sorted.length}, isSignedIn: ${isSignedIn}, filter: ${filterPeriod}`);
         return { settledBills: sorted, paidTotal: total };
     }, [filterPeriod, selectedMonth, intervals, bills, transactions, searchQuery, selectedCategory, isSignedIn, user]);
 

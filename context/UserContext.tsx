@@ -1,5 +1,5 @@
 import React, { createContext, useContext, ReactNode, useEffect, useState } from 'react';
-import { useUser as useClerkUser, useSession } from '@clerk/clerk-expo';
+import { useUser as useClerkUser, useSession, useAuth } from '@clerk/clerk-expo';
 import { setSupabaseTokenProvider, supabase } from '../services/supabase';
 
 interface UserProfile {
@@ -15,6 +15,7 @@ interface UserContextType {
     isSignedIn: boolean | undefined;
     updateUser: (data: { name?: string; email?: string; avatar?: string | null }) => Promise<void>;
     deleteAccount: () => Promise<void>;
+    signOut: () => Promise<void>;
 }
 
 const UserContext = createContext<UserContextType | undefined>(undefined);
@@ -22,6 +23,7 @@ const UserContext = createContext<UserContextType | undefined>(undefined);
 export function UserProvider({ children }: { children: ReactNode }) {
     const { user: clerkUser, isLoaded, isSignedIn } = useClerkUser();
     const { session } = useSession();
+    const { signOut: clerkSignOut } = useAuth();
     // Define strict type for Supabase profile
     interface SupabaseProfile {
         id: string;
@@ -151,7 +153,6 @@ export function UserProvider({ children }: { children: ReactNode }) {
             // 2. Delete Clerk Account
             await clerkUser.delete();
 
-            console.log('[Account Deletion] Successfully wiped Supabase and Clerk data');
         } catch (err) {
             console.error('Error during account deletion:', err);
             throw err;
@@ -168,13 +169,19 @@ export function UserProvider({ children }: { children: ReactNode }) {
     }
 
     useEffect(() => {
-        if (session) {
-            console.log('[UserContext] Session detected, token provider ready');
-        }
     }, [session]);
 
+    const signOut = async () => {
+        try {
+            await clerkSignOut();
+        } catch (err) {
+            console.error('Error during sign out:', err);
+            throw err;
+        }
+    };
+
     return (
-        <UserContext.Provider value={{ user, isLoaded, isSignedIn, updateUser, deleteAccount }}>
+        <UserContext.Provider value={{ user, isLoaded, isSignedIn, updateUser, deleteAccount, signOut }}>
             {children}
         </UserContext.Provider>
     );

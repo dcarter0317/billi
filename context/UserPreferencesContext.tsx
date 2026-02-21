@@ -63,14 +63,12 @@ export function UserPreferencesProvider({ children }: { children: ReactNode }) {
         async function loadPreferences() {
             // Wait for Clerk to resolve if signed in, but don't block forever if not
             if (isSignedIn && !user) {
-                console.log('[Preferences] Waiting for user object...');
                 return;
             }
 
             try {
                 // 1. Try cloud if signed in
                 if (isSignedIn && user) {
-                    console.log('[Preferences] Fetching cloud preferences for:', user.id);
                     const { data, error } = await supabase
                         .from('profiles')
                         .select('*')
@@ -142,7 +140,6 @@ export function UserPreferencesProvider({ children }: { children: ReactNode }) {
                         updated_at: new Date().toISOString()
                     });
 
-                    if (upsertError) console.error('[Preferences] Initial upsert error:', upsertError);
                 }
             } catch (e) {
                 console.error('[Preferences] Failed to load preferences', e);

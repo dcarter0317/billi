@@ -12,7 +12,7 @@ import PayPeriodSettings from '../components/PayPeriodSettings';
 export default function ProfileScreen() {
     const theme = useTheme();
     const router = useRouter();
-    const { user, updateUser, deleteAccount } = useUser();
+    const { user, updateUser, deleteAccount, signOut } = useUser();
     const {
         preferences,
         setThemeMode,
@@ -71,6 +71,28 @@ export default function ProfileScreen() {
         if (!success && !preferences.biometricsEnabled) {
             Alert.alert("Error", "Failed to enable biometrics. Please try again.");
         }
+    };
+
+    const handleSignOut = () => {
+        Alert.alert(
+            "Log Out",
+            "Are you sure you want to log out?",
+            [
+                { text: "Cancel", style: "cancel" },
+                {
+                    text: "Log Out",
+                    style: "destructive",
+                    onPress: async () => {
+                        try {
+                            await signOut();
+                            // Clerk handles the redirect
+                        } catch (err) {
+                            Alert.alert("Error", "Failed to sign out. Please try again.");
+                        }
+                    }
+                }
+            ]
+        );
     };
 
     const handleDeleteAccount = () => {
@@ -206,6 +228,16 @@ export default function ProfileScreen() {
 
 
                     <View style={styles.divider} />
+
+                    <Button
+                        mode="outlined"
+                        onPress={handleSignOut}
+                        textColor={theme.colors.error}
+                        icon="logout"
+                        style={{ marginBottom: 12, borderColor: theme.colors.error }}
+                    >
+                        Log Out
+                    </Button>
 
                     <Button
                         mode="text"
