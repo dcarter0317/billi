@@ -43,8 +43,8 @@ interface BillContextType {
     addBill: (bill: Omit<Bill, 'id'>) => Promise<void>;
     updateBill: (id: string, updates: Partial<Bill>) => Promise<void>;
     deleteBill: (id: string) => Promise<void>;
-    toggleBillStatus: (id: string) => Promise<void>;
-    toggleClearStatus: (id: string) => Promise<void>;
+    toggleBillStatus: (id: string, providedDueDate?: string) => Promise<void>;
+    toggleClearStatus: (id: string, providedDueDate?: string) => Promise<void>;
     resetAllStatuses: () => Promise<void>;
     setBills: (bills: Bill[]) => void;
     refreshBills: () => Promise<void>;
@@ -169,8 +169,8 @@ export function BillProvider({ children }: { children: ReactNode }) {
             } else {
                 setBillsState([]);
             }
-        } catch (err) {
-            console.error('Error loading bills:', err);
+        } catch (err: any) {
+            console.error('Error loading bills detail:', err.message, err.code, err);
             setError('Failed to load bills.');
         } finally {
             setLoading(false);
@@ -353,9 +353,24 @@ export function BillProvider({ children }: { children: ReactNode }) {
 
 
 
-    const toggleBillStatus = async (id: string) => {
+    const toggleBillStatus = async (id: string, providedDueDate?: string) => {
         const bill = bills.find((b: Bill) => b.id === id);
         if (!bill) return;
+
+        const isVirtual = providedDueDate && providedDueDate !== bill.dueDate;
+
+        // If it's a virtual occurrence from the future, we "realize" it by advancing the bill first
+        if (isVirtual) {
+            const nextDate = parseDate(providedDueDate);
+            await updateBill(id, {
+                dueDate: formatDate(nextDate),
+                isPaid: false,
+                isCleared: false,
+                clearedDate: undefined
+            });
+            // Recursively call for the newly advanced bill
+            return toggleBillStatus(id);
+        }
 
         const newIsPaid = !bill.isPaid;
         let updates: Partial<Bill> = { isPaid: newIsPaid };
@@ -372,9 +387,14 @@ export function BillProvider({ children }: { children: ReactNode }) {
                     updates.paidInstallments = currentPaid + 1;
                 }
             }
-
-            // For recurring bills, just mark as paid — don't advance yet.
-            // The bill advances to the next cycle when Clear is toggled.
+        } else {
+            // If untoggling "Paid", we should decrement the installment counter if applicable
+            if (bill.occurrence === 'Installments') {
+                const currentPaid = bill.paidInstallments || 0;
+                if (currentPaid > 0) {
+                    updates.paidInstallments = currentPaid - 1;
+                }
+            }
         }
 
         await updateBill(id, updates);
@@ -397,9 +417,22 @@ export function BillProvider({ children }: { children: ReactNode }) {
         });
     };
 
-    const toggleClearStatus = async (id: string) => {
+    const toggleClearStatus = async (id: string, providedDueDate?: string) => {
         const bill = bills.find((b: Bill) => b.id === id);
         if (!bill) return;
+
+        const isVirtual = providedDueDate && providedDueDate !== bill.dueDate;
+
+        if (isVirtual) {
+            const nextDate = parseDate(providedDueDate);
+            await updateBill(id, {
+                dueDate: formatDate(nextDate),
+                isPaid: false,
+                isCleared: false,
+                clearedDate: undefined
+            });
+            return toggleClearStatus(id);
+        }
 
         const newIsCleared = !bill.isCleared;
         let updates: Partial<Bill> = { isCleared: newIsCleared };
@@ -408,16 +441,10 @@ export function BillProvider({ children }: { children: ReactNode }) {
             await recordTransaction(bill, 'CLEARED');
             updates.clearedDate = formatDate(new Date());
 
-            // Advance recurring bills to the next cycle
-            if (bill.isRecurring && bill.occurrence !== 'One Time') {
-                const nextDate = calculateNextDueDate(bill);
-                if (nextDate) {
-                    updates.dueDate = formatDate(nextDate);
-                    updates.isPaid = false;
-                    updates.isCleared = false;
-                    updates.clearedDate = undefined;
-                }
-            }
+            // NOTE: Auto-advancement removed here. 
+            // The bill stays on the current month as Paid/Cleared until 
+            // 1. The user interacts with the NEXT month (handled by isVirtual above)
+            // 2. The user resets statuses.
         } else {
             updates.clearedDate = undefined;
         }

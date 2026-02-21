@@ -36,10 +36,13 @@ export default function HistoryScreen() {
                 .select('*')
                 .order('transaction_date', { ascending: false });
 
-            if (error) throw error;
+            if (error) {
+                console.error('Error fetching transactions detail:', error.message, error.code, error);
+                throw error;
+            }
             if (data) setTransactions(data as Transaction[]);
-        } catch (err) {
-            console.error('Error fetching transactions:', err);
+        } catch (err: any) {
+            console.error('Error fetching transactions exception:', err.message, err);
         } finally {
             setLoading(false);
         }
@@ -86,6 +89,7 @@ export default function HistoryScreen() {
         });
 
         const total = sorted.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
+        console.log(`[History] Source size: ${source.length}, Filtered size: ${sorted.length}, isSignedIn: ${isSignedIn}, filter: ${filterPeriod}`);
         return { settledBills: sorted, paidTotal: total };
     }, [filterPeriod, selectedMonth, intervals, bills, transactions, searchQuery, selectedCategory, isSignedIn, user]);
 

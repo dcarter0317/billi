@@ -310,6 +310,7 @@ export default function AuthScreen() {
                                 mode="outlined"
                                 style={styles.input}
                                 keyboardType="number-pad"
+                                autoComplete="one-time-code"
                                 left={<TextInput.Icon icon={() => <ArrowRight size={20} color={theme.colors.onSurfaceVariant} />} />}
                                 outlineColor="transparent"
                                 activeOutlineColor={theme.colors.primary}
@@ -377,6 +378,7 @@ export default function AuthScreen() {
                                     style={styles.input}
                                     keyboardType="email-address"
                                     autoCapitalize="none"
+                                    autoComplete="email"
                                     left={<TextInput.Icon icon={() => <Mail size={20} color={theme.colors.onSurfaceVariant} />} />}
                                     outlineColor="transparent"
                                     activeOutlineColor={theme.colors.primary}
@@ -391,6 +393,7 @@ export default function AuthScreen() {
                                     mode="outlined"
                                     style={styles.input}
                                     keyboardType="number-pad"
+                                    autoComplete="one-time-code"
                                     left={<TextInput.Icon icon={() => <ArrowRight size={20} color={theme.colors.onSurfaceVariant} />} />}
                                     outlineColor="transparent"
                                     activeOutlineColor={theme.colors.primary}
@@ -405,6 +408,7 @@ export default function AuthScreen() {
                                     mode="outlined"
                                     secureTextEntry
                                     style={styles.input}
+                                    autoComplete="new-password"
                                     left={<TextInput.Icon icon={() => <Lock size={20} color={theme.colors.onSurfaceVariant} />} />}
                                     outlineColor="transparent"
                                     activeOutlineColor={theme.colors.primary}
@@ -412,7 +416,7 @@ export default function AuthScreen() {
                             )}
 
                             {error && (
-                                <Text variant="bodySmall" style={[styles.error, { color: theme.colors.error }]}> 
+                                <Text variant="bodySmall" style={[styles.error, { color: theme.colors.error }]}>
                                     {error}
                                 </Text>
                             )}
@@ -528,6 +532,7 @@ export default function AuthScreen() {
                                 onChangeText={setName}
                                 mode="outlined"
                                 style={styles.input}
+                                autoComplete="name"
                                 left={<TextInput.Icon icon={() => <User size={20} color={theme.colors.onSurfaceVariant} />} />}
                                 outlineColor="transparent"
                                 activeOutlineColor={theme.colors.primary}
@@ -541,6 +546,7 @@ export default function AuthScreen() {
                             style={styles.input}
                             keyboardType="email-address"
                             autoCapitalize="none"
+                            autoComplete="email"
                             left={<TextInput.Icon icon={() => <Mail size={20} color={theme.colors.onSurfaceVariant} />} />}
                             outlineColor="transparent"
                             activeOutlineColor={theme.colors.primary}
@@ -552,6 +558,7 @@ export default function AuthScreen() {
                             mode="outlined"
                             secureTextEntry
                             style={styles.input}
+                            autoComplete={isSignUp ? "new-password" : "current-password"}
                             left={<TextInput.Icon icon={() => <Lock size={20} color={theme.colors.onSurfaceVariant} />} />}
                             outlineColor="transparent"
                             activeOutlineColor={theme.colors.primary}

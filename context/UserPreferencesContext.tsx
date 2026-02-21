@@ -93,7 +93,7 @@ export function UserPreferencesProvider({ children }: { children: ReactNode }) {
                         return;
                     } else if (error && error.code !== 'PGRST116') {
                         // PGRST116 is "no rows returned", which is expected for new users
-                        console.error('[Preferences] Cloud load error:', error);
+                        console.error('[Preferences] Cloud load error detail:', error.message, error.code, error);
                     }
                 }
 

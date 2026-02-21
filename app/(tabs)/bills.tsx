@@ -82,7 +82,13 @@ export default function BillsScreen() {
 
                 const recurringDueDate = getRecurringDueDateForMonth(bill, selectedMonth, currentYear);
                 if (recurringDueDate) {
-                    acc.push({ ...bill, dueDate: formatDate(recurringDueDate) });
+                    acc.push({
+                        ...bill,
+                        dueDate: formatDate(recurringDueDate),
+                        isPaid: false,
+                        isCleared: false,
+                        clearedDate: undefined
+                    });
                 }
 
                 return acc;
@@ -237,7 +243,7 @@ export default function BillsScreen() {
                                     </Text>
                                     <Switch
                                         value={item.isPaid}
-                                        onValueChange={() => toggleBillStatus(item.id)}
+                                        onValueChange={() => toggleBillStatus(item.id, item.dueDate)}
                                         trackColor={{
                                             false: getBillStatusColor(item, theme),
                                             true: (theme.colors as any).success || theme.colors.primary
@@ -249,7 +255,7 @@ export default function BillsScreen() {
                                 <View style={styles.clearedRow}>
                                     <Checkbox.Android
                                         status={item.isCleared ? 'checked' : 'unchecked'}
-                                        onPress={() => toggleClearStatus(item.id)}
+                                        onPress={() => toggleClearStatus(item.id, item.dueDate)}
                                         color={(theme.colors as any).success || theme.colors.primary}
                                     />
                                     <Text variant="labelSmall" style={styles.clearedText}>

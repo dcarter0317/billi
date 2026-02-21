@@ -51,10 +51,10 @@ export function UserProvider({ children }: { children: ReactNode }) {
                 if (data) {
                     setSupabaseProfile(data as SupabaseProfile);
                 } else if (error && error.code !== 'PGRST116') {
-                    console.error('Error fetching profile:', error);
+                    console.error('Error fetching profile detail:', error.message, error.code, error);
                 }
-            } catch (err) {
-                console.error('Error fetching profile:', err);
+            } catch (err: any) {
+                console.error('Error fetching profile exception:', err.message, err);
             }
         };
 
@@ -119,7 +119,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
             const { error } = await supabase.from('profiles').upsert(supabaseUpdates);
 
             if (error) {
-                console.error('Error updating Supabase profile:', error);
+                console.error('Error updating Supabase profile detail:', error.message, error.code, error);
                 throw error;
             }
 

@@ -55,6 +55,9 @@ export default function HomeScreen() {
     // Unified logic: First filter bills by period AND search AND category, then derive stats
     const { upcomingBills, settledBills, totalDue, paidTotal } = useMemo(() => {
         const upcoming = bills.filter((bill: Bill) => {
+            if (bill.isPaid || bill.isCleared) {
+                return false;
+            }
             if (searchQuery.length > 0 && !bill.title.toLowerCase().includes(searchQuery.toLowerCase())) {
                 return false;
             }
