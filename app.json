@@ -3,7 +3,7 @@
     "name": "billi",
     "slug": "billi",
     "scheme": "billi",
-    "version": "1.0.0",
+    "version": "1.0.2",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -18,7 +18,8 @@
       "bundleIdentifier": "com.billi.app",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
-      }
+      },
+      "buildNumber": "3"
     },
     "android": {
       "package": "com.billi.app",
