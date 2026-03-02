@@ -319,6 +319,7 @@ export default function BillsScreen() {
 
                 <DraggableFlatList
                     data={filteredBills}
+                    containerStyle={{ flex: 1 }}
                     onDragEnd={({ data }) => {
                         if (searchQuery.length === 0 && filterPeriod === 'all' && statusFilter === 'all' && selectedCategory === 'All') {
                             setBills(data);
@@ -408,7 +409,7 @@ const styles = StyleSheet.create({
     },
     list: {
         paddingHorizontal: 16,
-        paddingBottom: 80,
+        paddingBottom: 120,
     },
     card: {
         marginBottom: 12,
