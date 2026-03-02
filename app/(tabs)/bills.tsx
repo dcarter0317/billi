@@ -8,6 +8,7 @@ import DraggableFlatList, {
     RenderItemParams,
     ScaleDecorator
 } from 'react-native-draggable-flatlist';
+import { TouchableOpacity as GHTouchableOpacity } from 'react-native-gesture-handler';
 
 import { useBills, Bill } from '../../context/BillContext';
 import { MONTHS, parseDate, getBillStatusColor, getBillAlertStatus, formatDate, getRecurringDueDateForMonth } from '../../utils/date';
@@ -123,7 +124,7 @@ export default function BillsScreen() {
 
     const renderItem = ({ item, drag, isActive }: RenderItemParams<Bill>) => (
         <ScaleDecorator>
-            <TouchableOpacity
+            <GHTouchableOpacity
                 onLongPress={drag}
                 disabled={isActive || searchQuery.length > 0 || filterPeriod !== 'all'}
                 activeOpacity={1}
@@ -266,7 +267,7 @@ export default function BillsScreen() {
                         </View>
                     </Card.Content>
                 </Card>
-            </TouchableOpacity>
+            </GHTouchableOpacity>
         </ScaleDecorator>
     );
 
@@ -276,6 +277,36 @@ export default function BillsScreen() {
                 behavior={Platform.OS === 'ios' ? 'padding' : undefined}
                 style={{ flex: 1 }}
             >
+                <View style={styles.header}>
+                    <View style={styles.headerTop}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                            <Text variant="headlineMedium" style={{ fontWeight: 'bold' }}>My Bills</Text>
+                            <Button
+                                mode="text"
+                                compact
+                                onPress={handleReset}
+                                icon="refresh"
+                                labelStyle={{ fontSize: 13, fontWeight: 'bold' }}
+                                style={{ marginLeft: 4 }}
+                            >
+                                RESET
+                            </Button>
+                        </View>
+                        <Card style={[styles.totalCard, { backgroundColor: theme.colors.surfaceVariant }]}>
+                            <Card.Content style={styles.totalContent}>
+                                <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant, textTransform: 'uppercase' }}>Paid Total</Text>
+                                <Text variant="titleLarge" style={{ fontWeight: 'bold', color: theme.colors.primary }}>{currencySymbol}{paidTotal}</Text>
+                            </Card.Content>
+                        </Card>
+                    </View>
+
+                    <FilterBar
+                        filters={filters}
+                        allLabel="All Bills"
+                        searchPlaceholder="Search bills"
+                    />
+                </View>
+
                 <DraggableFlatList
                     data={filteredBills}
                     onDragEnd={({ data }) => {
@@ -287,36 +318,6 @@ export default function BillsScreen() {
                     renderItem={renderItem}
                     ListHeaderComponent={
                         <View>
-                            <View style={styles.header}>
-                                <View style={styles.headerTop}>
-                                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                        <Text variant="headlineMedium" style={{ fontWeight: 'bold' }}>My Bills</Text>
-                                        <Button
-                                            mode="text"
-                                            compact
-                                            onPress={handleReset}
-                                            icon="refresh"
-                                            labelStyle={{ fontSize: 13, fontWeight: 'bold' }}
-                                            style={{ marginLeft: 4 }}
-                                        >
-                                            RESET
-                                        </Button>
-                                    </View>
-                                    <Card style={[styles.totalCard, { backgroundColor: theme.colors.surfaceVariant }]}>
-                                        <Card.Content style={styles.totalContent}>
-                                            <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant, textTransform: 'uppercase' }}>Paid Total</Text>
-                                            <Text variant="titleLarge" style={{ fontWeight: 'bold', color: theme.colors.primary }}>{currencySymbol}{paidTotal}</Text>
-                                        </Card.Content>
-                                    </Card>
-                                </View>
-
-                                <FilterBar
-                                    filters={filters}
-                                    allLabel="All Bills"
-                                    searchPlaceholder="Search bills"
-                                />
-                            </View>
-
                             {searchQuery.length === 0 && filterPeriod === 'all' && (
                                 <Text variant="labelSmall" style={styles.helperText}>
                                     Long press to reorder

@@ -184,7 +184,6 @@ export default function FilterBar({
                 onChangeText={setSearchQuery}
                 value={searchQuery}
                 style={sharedStyles.searchBar}
-                inputStyle={{ minHeight: 0 }}
             />
         </>
     );
