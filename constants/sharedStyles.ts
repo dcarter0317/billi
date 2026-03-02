@@ -16,11 +16,17 @@ export const sharedStyles = StyleSheet.create({
         marginBottom: 12,
     },
     searchBar: {
-        height: 40,
+        height: 44,
         borderRadius: 12,
         marginBottom: 8,
         elevation: 0,
         backgroundColor: 'rgba(0,0,0,0.05)',
+    },
+    searchBarInput: {
+        minHeight: 0,
+        alignSelf: 'center',
+        paddingVertical: 0,
+        fontSize: 14,
     },
     filterChip: {
         paddingVertical: 4,

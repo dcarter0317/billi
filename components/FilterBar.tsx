@@ -13,6 +13,8 @@ interface FilterBarProps {
     allLabel?: string;
     /** Placeholder for the search bar */
     searchPlaceholder?: string;
+    /** Whether to show the Paid/Unpaid status filter chips */
+    showStatusFilter?: boolean;
 }
 
 /**
@@ -23,6 +25,7 @@ export default function FilterBar({
     filters,
     allLabel = 'All Bills',
     searchPlaceholder = 'Search',
+    showStatusFilter = false,
 }: FilterBarProps) {
     const theme = useTheme();
     const {
@@ -32,6 +35,7 @@ export default function FilterBar({
         selectedCategory, setSelectedCategory,
         showCategoryMenu, setShowCategoryMenu,
         searchQuery, setSearchQuery,
+        statusFilter, setStatusFilter,
         preferences,
     } = filters;
 
@@ -178,12 +182,38 @@ export default function FilterBar({
                 ))}
             </ScrollView>
 
+            {showStatusFilter && (
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={sharedStyles.filterScroll}>
+                    {(['all', 'paid', 'unpaid'] as const).map((status) => (
+                        <TouchableOpacity
+                            key={status}
+                            onPress={() => setStatusFilter(status)}
+                            style={[
+                                sharedStyles.filterChip,
+                                statusFilter === status && { backgroundColor: theme.colors.primaryContainer }
+                            ]}
+                        >
+                            <Text
+                                variant="labelSmall"
+                                style={[
+                                    sharedStyles.filterChipText,
+                                    { color: statusFilter === status ? theme.colors.onPrimaryContainer : theme.colors.onSurfaceVariant }
+                                ]}
+                            >
+                                {status === 'all' ? 'All Status' : status}
+                            </Text>
+                        </TouchableOpacity>
+                    ))}
+                </ScrollView>
+            )}
+
             {/* Search Bar */}
             <Searchbar
                 placeholder={searchPlaceholder}
                 onChangeText={setSearchQuery}
                 value={searchQuery}
                 style={sharedStyles.searchBar}
+                inputStyle={sharedStyles.searchBarInput}
             />
         </>
     );

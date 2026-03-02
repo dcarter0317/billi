@@ -25,7 +25,7 @@ export default function BillsScreen() {
     const isFocused = useIsFocused();
     const { bills, setBills, deleteBill: contextDeleteBill, toggleBillStatus, toggleClearStatus, resetAllStatuses } = useBills();
     const filters = useBillFilters('all');
-    const { filterPeriod, selectedMonth, searchQuery, selectedCategory, intervals, preferences, setSelectedMonth } = filters;
+    const { filterPeriod, selectedMonth, searchQuery, selectedCategory, statusFilter, intervals, preferences, setSelectedMonth } = filters;
     const currencySymbol = getCurrencySymbol(preferences.currency);
 
     const deleteBill = (id: string) => {
@@ -65,8 +65,15 @@ export default function BillsScreen() {
         const matchesCategory = (bill: Bill) =>
             selectedCategory === 'All' || bill.category === selectedCategory;
 
+        const matchesStatus = (bill: Bill) => {
+            if (statusFilter === 'all') return true;
+            if (statusFilter === 'paid') return bill.isPaid || bill.isCleared;
+            if (statusFilter === 'unpaid') return !bill.isPaid && !bill.isCleared;
+            return true;
+        };
+
         if (filterPeriod === 'monthly') {
-            if (selectedMonth === -1) return bills.filter(matchesCategory);
+            if (selectedMonth === -1) return bills.filter(bill => matchesCategory(bill) && matchesStatus(bill));
 
             const currentYear = new Date().getFullYear();
 
@@ -74,6 +81,7 @@ export default function BillsScreen() {
                 const matchesSearch = bill.title.toLowerCase().includes(searchQuery.toLowerCase());
                 if (!matchesSearch) return acc;
                 if (!matchesCategory(bill)) return acc;
+                if (!matchesStatus(bill)) return acc;
 
                 const billDate = parseDate(bill.dueDate);
                 if (billDate.getMonth() === selectedMonth && billDate.getFullYear() === currentYear) {
@@ -100,6 +108,7 @@ export default function BillsScreen() {
             const matchesSearch = bill.title.toLowerCase().includes(searchQuery.toLowerCase());
             if (!matchesSearch) return false;
             if (!matchesCategory(bill)) return false;
+            if (!matchesStatus(bill)) return false;
 
             if (filterPeriod === 'all') return true;
 
@@ -113,7 +122,7 @@ export default function BillsScreen() {
 
             return false;
         });
-    }, [bills, searchQuery, filterPeriod, selectedMonth, intervals, selectedCategory]);
+    }, [bills, searchQuery, filterPeriod, selectedMonth, intervals, selectedCategory, statusFilter]);
 
     const paidTotal = useMemo(() => {
         return filteredBills
@@ -126,7 +135,7 @@ export default function BillsScreen() {
         <ScaleDecorator>
             <GHTouchableOpacity
                 onLongPress={drag}
-                disabled={isActive || searchQuery.length > 0 || filterPeriod !== 'all'}
+                disabled={isActive || searchQuery.length > 0 || filterPeriod !== 'all' || statusFilter !== 'all' || selectedCategory !== 'All'}
                 activeOpacity={1}
             >
                 <Card style={[
@@ -304,13 +313,14 @@ export default function BillsScreen() {
                         filters={filters}
                         allLabel="All Bills"
                         searchPlaceholder="Search bills"
+                        showStatusFilter={true}
                     />
                 </View>
 
                 <DraggableFlatList
                     data={filteredBills}
                     onDragEnd={({ data }) => {
-                        if (searchQuery.length === 0 && filterPeriod === 'all') {
+                        if (searchQuery.length === 0 && filterPeriod === 'all' && statusFilter === 'all' && selectedCategory === 'All') {
                             setBills(data);
                         }
                     }}
@@ -318,7 +328,7 @@ export default function BillsScreen() {
                     renderItem={renderItem}
                     ListHeaderComponent={
                         <View>
-                            {searchQuery.length === 0 && filterPeriod === 'all' && (
+                            {searchQuery.length === 0 && filterPeriod === 'all' && statusFilter === 'all' && selectedCategory === 'All' && (
                                 <Text variant="labelSmall" style={styles.helperText}>
                                     Long press to reorder
                                 </Text>

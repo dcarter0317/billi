@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { usePreferences } from '../context/UserPreferencesContext';
 import { getPayPeriodInterval } from '../utils/date';
-import { FilterPeriod } from '../types';
+import { FilterPeriod, BillStatusFilter } from '../types';
 
 /**
  * Shared filter state used by Home, Bills, and History screens.
@@ -17,6 +17,7 @@ export function useBillFilters(defaultPeriod: FilterPeriod = 'all') {
     const [selectedCategory, setSelectedCategory] = useState<string>('All');
     const [showCategoryMenu, setShowCategoryMenu] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
+    const [statusFilter, setStatusFilter] = useState<BillStatusFilter>('all');
 
     const intervals = useMemo(() => ({
         last: getPayPeriodInterval(preferences.payPeriodStart, preferences.payPeriodOccurrence, -1, preferences.payPeriodSemiMonthlyDays),
@@ -37,6 +38,8 @@ export function useBillFilters(defaultPeriod: FilterPeriod = 'all') {
         setShowCategoryMenu,
         searchQuery,
         setSearchQuery,
+        statusFilter,
+        setStatusFilter,
         intervals,
         preferences,
     };
