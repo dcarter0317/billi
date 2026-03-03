@@ -9,7 +9,7 @@ import { parseDate, formatDate } from '../../utils/date';
 import { supabase } from '../../services/supabase';
 import { useUser } from '../../context/UserContext';
 import { CATEGORY_ICONS } from '../../constants/categories';
-import { getCurrencySymbol } from '../../utils/currency';
+import { getCurrencySymbol, formatAmount } from '../../utils/currency';
 import FilterBar from '../../components/FilterBar';
 import { useBillFilters } from '../../hooks/useBillFilters';
 import { Transaction } from '../../types';
@@ -162,7 +162,7 @@ export default function HistoryScreen() {
                                 right={(props) => (
                                     <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                                         <Text variant="titleMedium" style={{ opacity: 0.7, textDecorationLine: 'line-through' }}>
-                                            {currencySymbol}{item.amount}
+                                            {currencySymbol}{formatAmount(item.amount)}
                                         </Text>
                                         {item.bill_id && (
                                             <IconButton

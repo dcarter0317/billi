@@ -12,7 +12,7 @@ import { TouchableOpacity as GHTouchableOpacity } from 'react-native-gesture-han
 
 import { useBills, Bill } from '../../context/BillContext';
 import { MONTHS, parseDate, getBillStatusColor, getBillAlertStatus, formatDate, getRecurringDueDateForMonth } from '../../utils/date';
-import { getCurrencySymbol } from '../../utils/currency';
+import { getCurrencySymbol, formatAmount } from '../../utils/currency';
 import { CATEGORY_ICONS } from '../../constants/categories';
 import { useIsFocused } from '@react-navigation/native';
 import FilterBar from '../../components/FilterBar';
@@ -212,7 +212,7 @@ export default function BillsScreen() {
                         </View>
                         <View style={styles.cardRight}>
                             <View style={styles.amountRow}>
-                                <Text variant="titleMedium" style={{ marginRight: 8 }}>{currencySymbol}{item.amount}</Text>
+                                <Text variant="titleMedium" style={{ marginRight: 8 }}>{currencySymbol}{formatAmount(item.amount)}</Text>
                                 <IconButton
                                     icon="pencil"
                                     size={20}

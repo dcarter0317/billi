@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { parseDate, formatDate, calculateNextDueDate } from '../utils/date';
+import { getCurrencySymbol, formatAmount } from '../utils/currency';
 import { supabase } from '../services/supabase';
 import { useUser } from './UserContext';
 
@@ -90,7 +91,7 @@ export function BillProvider({ children }: { children: ReactNode }) {
     const mapDbBillToLocal = (dbBill: DbBill): Bill => ({
         id: dbBill.id,
         title: dbBill.title,
-        amount: dbBill.amount?.toString() || '0.00',
+        amount: formatAmount(dbBill.amount),
         dueDate: formatDate(parseDate(dbBill.due_date)),
         isPaid: dbBill.is_paid || false,
         isCleared: dbBill.is_cleared || false,
@@ -103,11 +104,11 @@ export function BillProvider({ children }: { children: ReactNode }) {
         paidInstallments: dbBill.paid_installments ?? undefined,
         isRecurring: dbBill.is_recurring || false,
         notes: dbBill.notes || '',
-        totalInstallmentAmount: dbBill.total_installment_amount?.toString() ?? undefined,
+        totalInstallmentAmount: formatAmount(dbBill.total_installment_amount),
         installmentStartDate: dbBill.installment_start_date ? formatDate(parseDate(dbBill.installment_start_date)) : undefined,
         installmentEndDate: dbBill.installment_end_date ? formatDate(parseDate(dbBill.installment_end_date)) : undefined,
         installmentRecurrence: (dbBill.installment_recurrence as Bill['installmentRecurrence']) ?? undefined,
-        remainingBalance: dbBill.remaining_balance?.toString() ?? undefined,
+        remainingBalance: formatAmount(dbBill.remaining_balance),
     });
 
     const toDbDate = (dateStr: string): string => {
@@ -407,7 +408,7 @@ export function BillProvider({ children }: { children: ReactNode }) {
         const updatedHistory = bill.paymentHistory.filter(r => r.id !== recordId);
         const newPaidInstallments = updatedHistory.length;
         const remainingBalance = bill.totalInstallmentAmount
-            ? ((parseFloat(bill.totalInstallmentAmount) || 0) - ((parseFloat(bill.amount) || 0) * newPaidInstallments)).toFixed(2)
+            ? formatAmount((parseFloat(bill.totalInstallmentAmount) || 0) - ((parseFloat(bill.amount) || 0) * newPaidInstallments))
             : undefined;
 
         await updateBill(billId, {

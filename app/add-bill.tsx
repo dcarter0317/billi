@@ -8,7 +8,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { useBills, Bill } from '../context/BillContext';
 import { usePreferences } from '../context/UserPreferencesContext';
 import { formatDate, parseDate } from '../utils/date';
-import { getCurrencySymbol } from '../utils/currency';
+import { getCurrencySymbol, formatAmount } from '../utils/currency';
 import { CATEGORIES } from '../constants/categories';
 
 const OCCURRENCES = ['One Time', 'Every Month', 'Every Week', 'Twice a Week', 'Twice a Month', 'Every Other Week', 'Every Quarter', 'Every Year', 'Installments'];
@@ -248,7 +248,7 @@ export default function AddBillScreen() {
 
                 await updateBill(id, {
                     title,
-                    amount,
+                    amount: formatAmount(amount),
                     dueDate: finalDueDate,
                     category: finalCategory,
                     isPaid,
@@ -257,11 +257,11 @@ export default function AddBillScreen() {
                     dueDays,
                     totalInstallments: occurrence === 'Installments' ? parseInt(totalInstallments) || 0 : undefined,
                     paidInstallments: occurrence === 'Installments' ? parseInt(paidInstallments) || 0 : undefined,
-                    totalInstallmentAmount: occurrence === 'Installments' ? installmentTotalAmount : undefined,
+                    totalInstallmentAmount: occurrence === 'Installments' ? formatAmount(installmentTotalAmount) : undefined,
                     installmentStartDate: occurrence === 'Installments' ? formatDate(installmentStartDate) : undefined,
                     installmentEndDate: occurrence === 'Installments' ? installmentEndDate : undefined,
                     installmentRecurrence: occurrence === 'Installments' ? installmentRecurrence : undefined,
-                    remainingBalance: occurrence === 'Installments' ? ((parseFloat(installmentTotalAmount) || 0) - ((parseFloat(amount) || 0) * (parseInt(paidInstallments) || 0))).toFixed(2) : undefined,
+                    remainingBalance: occurrence === 'Installments' ? formatAmount((parseFloat(installmentTotalAmount) || 0) - ((parseFloat(amount) || 0) * (parseInt(paidInstallments) || 0))) : undefined,
                     notes,
                     isRecurring,
                 });
@@ -271,7 +271,7 @@ export default function AddBillScreen() {
 
                 await addBill({
                     title,
-                    amount,
+                    amount: formatAmount(amount),
                     dueDate: finalDueDate,
                     category: finalCategory,
                     isPaid,
@@ -280,11 +280,11 @@ export default function AddBillScreen() {
                     dueDays,
                     totalInstallments: occurrence === 'Installments' ? parseInt(totalInstallments) || 0 : undefined,
                     paidInstallments: occurrence === 'Installments' ? parseInt(paidInstallments) || 0 : 0,
-                    totalInstallmentAmount: occurrence === 'Installments' ? installmentTotalAmount : undefined,
+                    totalInstallmentAmount: occurrence === 'Installments' ? formatAmount(installmentTotalAmount) : undefined,
                     installmentStartDate: occurrence === 'Installments' ? formatDate(installmentStartDate) : undefined,
                     installmentEndDate: occurrence === 'Installments' ? installmentEndDate : undefined,
                     installmentRecurrence: occurrence === 'Installments' ? installmentRecurrence : undefined,
-                    remainingBalance: occurrence === 'Installments' ? ((parseFloat(installmentTotalAmount) || 0) - ((parseFloat(amount) || 0) * (parseInt(paidInstallments) || 0))).toFixed(2) : undefined,
+                    remainingBalance: occurrence === 'Installments' ? formatAmount((parseFloat(installmentTotalAmount) || 0) - ((parseFloat(amount) || 0) * (parseInt(paidInstallments) || 0))) : undefined,
                     notes,
                     isRecurring,
                 });
@@ -476,7 +476,7 @@ export default function AddBillScreen() {
                                         <View style={[styles.infoBox, { backgroundColor: theme.colors.surfaceVariant, borderColor: theme.colors.outlineVariant }]}>
                                             <Text variant="labelLarge" style={{ color: theme.dark ? '#FFFFFF' : theme.colors.onSurfaceVariant }}>Remaining Balance</Text>
                                             <Text variant="headlineSmall" style={{ color: theme.dark ? '#FFFFFF' : theme.colors.primary, fontWeight: 'bold' }}>
-                                                {currencySymbol}{((parseFloat(installmentTotalAmount) || 0) - ((parseFloat(amount) || 0) * (parseInt(paidInstallments) || 0))).toFixed(2)}
+                                                {currencySymbol}{formatAmount((parseFloat(installmentTotalAmount) || 0) - ((parseFloat(amount) || 0) * (parseInt(paidInstallments) || 0)))}
                                             </Text>
                                         </View>
                                     )}
