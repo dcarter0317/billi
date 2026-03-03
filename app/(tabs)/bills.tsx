@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { View, StyleSheet, TouchableOpacity, Switch, KeyboardAvoidingView, Platform, Alert, ScrollView } from 'react-native';
+import { View, StyleSheet, TouchableOpacity, Switch, KeyboardAvoidingView, Platform, Alert, ScrollView, Pressable } from 'react-native';
 import { Text, Card, useTheme, FAB, IconButton, Checkbox, Button, Portal, Avatar } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -8,7 +8,7 @@ import DraggableFlatList, {
     RenderItemParams,
     ScaleDecorator
 } from 'react-native-draggable-flatlist';
-import { TouchableOpacity as GHTouchableOpacity } from 'react-native-gesture-handler';
+// Remove unused GHTouchableOpacity
 
 import { useBills, Bill } from '../../context/BillContext';
 import { MONTHS, parseDate, getBillStatusColor, getBillAlertStatus, formatDate, getRecurringDueDateForMonth } from '../../utils/date';
@@ -133,16 +133,18 @@ export default function BillsScreen() {
 
     const renderItem = ({ item, drag, isActive }: RenderItemParams<Bill>) => (
         <ScaleDecorator>
-            <GHTouchableOpacity
-                onLongPress={drag}
-                disabled={isActive || searchQuery.length > 0 || filterPeriod !== 'all' || statusFilter !== 'all' || selectedCategory !== 'All'}
-                activeOpacity={1}
-            >
-                <Card style={[
+            <Card
+                style={[
                     styles.card,
                     isActive && { backgroundColor: theme.colors.surfaceVariant, elevation: 8 },
                     (item.isPaid || item.isCleared) && sharedStyles.settledCard
-                ]}>
+                ]}
+            >
+                <Pressable
+                    onLongPress={drag}
+                    disabled={isActive || searchQuery.length > 0 || filterPeriod !== 'all' || statusFilter !== 'all' || selectedCategory !== 'All'}
+                    delayLongPress={200}
+                >
                     <Card.Content style={styles.cardContent}>
                         <Avatar.Icon
                             size={40}
@@ -216,7 +218,7 @@ export default function BillsScreen() {
                                 <IconButton
                                     icon="pencil"
                                     size={20}
-                                    iconColor={theme.colors.error}
+                                    iconColor={theme.colors.onSurfaceVariant}
                                     onPress={() => router.push({
                                         pathname: '/add-bill',
                                         params: {
@@ -226,7 +228,7 @@ export default function BillsScreen() {
                                     })}
                                     style={[
                                         styles.editButton,
-                                        { borderColor: theme.colors.error }
+                                        { borderColor: theme.colors.outlineVariant }
                                     ]}
                                 />
                                 <IconButton
@@ -275,8 +277,8 @@ export default function BillsScreen() {
                             </View>
                         </View>
                     </Card.Content>
-                </Card>
-            </GHTouchableOpacity>
+                </Pressable>
+            </Card>
         </ScaleDecorator>
     );
 
