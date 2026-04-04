@@ -324,74 +324,152 @@ export const getBillStatusColor = (bill: Bill, theme: any) => {
 };
 
 /**
+ * Returns all occurrences of a bill that fall within the given [start, end] interval.
+ */
+export const getBillOccurrencesInInterval = (bill: Bill, start: Date, end: Date): Date[] => {
+    const occurrence = bill.occurrence;
+    const isRecurring = bill.isRecurring ?? (occurrence ? occurrence !== 'One Time' : false);
+    const anchorDate = parseDate(bill.dueDate);
+    const results: Date[] = [];
+
+    // Normalize dates to midnight for comparison
+    const s = new Date(start); s.setHours(0, 0, 0, 0);
+    const e = new Date(end); e.setHours(23, 59, 59, 999);
+    const a = new Date(anchorDate); a.setHours(0, 0, 0, 0);
+
+    // If anchor date itself is in range, but we only add it if it's the primary instance.
+    // Actually, let's just calculate all occurrences from the start of the interval to the end.
+
+    if (!isRecurring) {
+        if (a >= s && a <= e) return [a];
+        return [];
+    }
+
+    // For recurring bills, we need to find instances between s and e.
+    // We already have some logic in getRecurringDueDateForMonth, but let's make it robust.
+
+    if (occurrence === 'Every Year') {
+        // Check if the month and day match in any year within the range
+        // Usually range is small (1 month or 15 days), so at most 1 instance.
+        const yearStart = s.getFullYear();
+        const yearEnd = e.getFullYear();
+        for (let y = yearStart; y <= yearEnd; y++) {
+            const candidate = new Date(y, a.getMonth(), a.getDate());
+            if (candidate >= s && candidate <= e && candidate >= a) {
+                results.push(candidate);
+            }
+        }
+    } else if (occurrence === 'Every Quarter') {
+        const anchorDay = a.getDate();
+        let candidate = new Date(a);
+        while (candidate <= e) {
+            if (candidate >= s && candidate >= a) {
+                results.push(new Date(candidate));
+            }
+            // Move month then clamp to anchor day
+            const targetMonth = candidate.getMonth() + 3;
+            const targetYear = candidate.getFullYear();
+            candidate.setDate(1);
+            candidate.setMonth(targetMonth);
+            const daysInMonth = new Date(candidate.getFullYear(), candidate.getMonth() + 1, 0).getDate();
+            candidate.setDate(Math.min(anchorDay, daysInMonth));
+        }
+    } else if (occurrence === 'Every Month' || occurrence === 'Installments') {
+        const anchorDay = a.getDate();
+        let candidate = new Date(a);
+        const instEndDate = bill.installmentEndDate ? parseDate(bill.installmentEndDate) : null;
+        const instRecurrence = occurrence === 'Installments' ? (bill.installmentRecurrence || 'monthly') : 'monthly';
+
+        while (candidate <= e && (!instEndDate || candidate <= instEndDate)) {
+            if (candidate >= s && candidate >= a) {
+                results.push(new Date(candidate));
+            }
+
+            if (instRecurrence === 'bi-weekly') {
+                candidate.setDate(candidate.getDate() + 14);
+            } else {
+                // Monthly with clamping
+                const targetMonth = candidate.getMonth() + 1;
+                candidate.setDate(1);
+                candidate.setMonth(targetMonth);
+                const daysInMonth = new Date(candidate.getFullYear(), candidate.getMonth() + 1, 0).getDate();
+                candidate.setDate(Math.min(anchorDay, daysInMonth));
+            }
+        }
+    } else if (occurrence === 'Twice a Month') {
+        // Usually 15 days apart. Let's assume anchor and anchor + 15
+        const d1 = a.getDate();
+        const d2 = (d1 + 15) > 30 ? (d1 - 15) : (d1 + 15);
+        const days = [d1, d2].sort((x, y) => x - y);
+
+        let curr = new Date(s.getFullYear(), s.getMonth(), 1);
+        const loopEnd = new Date(e.getFullYear(), e.getMonth() + 1, 1);
+
+        while (curr < loopEnd) {
+            for (const d of days) {
+                const candidate = new Date(curr.getFullYear(), curr.getMonth(), d);
+                // Clamp to last day of month
+                if (candidate.getMonth() !== curr.getMonth()) {
+                    candidate.setDate(0);
+                }
+                if (candidate >= s && candidate <= e && candidate >= a) {
+                    results.push(candidate);
+                }
+            }
+            curr.setMonth(curr.getMonth() + 1);
+        }
+    } else if (occurrence === 'Every Week' || occurrence === 'Twice a Week' || occurrence === 'Every Other Week') {
+        const weekdays = (bill.dueDays && bill.dueDays.length > 0) ? bill.dueDays : [a.getDay()];
+        
+        // Start searching from whichever is earlier: anchor or start of interval
+        // But we must respect the "Every Other Week" parity if applicable.
+        let candidate = new Date(a);
+        
+        // Optimization: jump closer to 's'
+        if (occurrence !== 'Every Other Week' && s > candidate) {
+            const diff = s.getTime() - candidate.getTime();
+            const weeksToJump = Math.floor(diff / (7 * 24 * 60 * 60 * 1000));
+            candidate.setDate(candidate.getDate() + (weeksToJump * 7));
+        }
+
+        while (candidate <= e) {
+            if (weekdays.includes(candidate.getDay())) {
+                if (candidate >= s && candidate >= a) {
+                    // Check parity for Every Other Week
+                    if (occurrence === 'Every Other Week') {
+                        const diffDays = Math.floor((candidate.getTime() - a.getTime()) / (1000 * 60 * 60 * 24));
+                        if (Math.floor(diffDays / 7) % 2 === 0) {
+                            results.push(new Date(candidate));
+                        }
+                    } else {
+                        results.push(new Date(candidate));
+                    }
+                }
+            }
+            
+            // Move to next day
+            candidate.setDate(candidate.getDate() + 1);
+            
+            // If we have multiple days in a week, we check each day. 
+            // If it's "Every Week" we just keep going.
+        }
+    }
+
+    // Deduplicate and Sort
+    return Array.from(new Set(results.map(d => d.getTime())))
+        .sort((a, b) => a - b)
+        .map(t => new Date(t));
+};
+
+/**
  * For a given bill + target month/year, returns the first recurring due date
  * that falls in that month, or null if the bill doesn't recur that month.
  */
 export const getRecurringDueDateForMonth = (bill: Bill, monthIndex: number, year: number): Date | null => {
-    const occurrence = bill.occurrence || 'Every Month';
-    const isRecurring = bill.isRecurring || occurrence !== 'One Time';
-    if (!isRecurring) return null;
-
-    const anchorDate = parseDate(bill.dueDate);
-    const monthEnd = new Date(year, monthIndex + 1, 0);
-    if (monthEnd < anchorDate) return null;
-
-    const makeDate = (day: number) => {
-        const lastDay = new Date(year, monthIndex + 1, 0).getDate();
-        return new Date(year, monthIndex, Math.min(day, lastDay));
-    };
-
-    const normalizeStartMonthDate = (date: Date) => {
-        if (date.getFullYear() === anchorDate.getFullYear() && date.getMonth() === anchorDate.getMonth() && date < anchorDate) {
-            return new Date(anchorDate);
-        }
-        return date;
-    };
-
-    if (occurrence === 'Every Year') {
-        if (monthIndex !== anchorDate.getMonth() || year < anchorDate.getFullYear()) return null;
-        return makeDate(anchorDate.getDate());
-    }
-
-    if (occurrence === 'Every Quarter') {
-        const diffMonths = (year - anchorDate.getFullYear()) * 12 + (monthIndex - anchorDate.getMonth());
-        if (diffMonths < 0 || diffMonths % 3 !== 0) return null;
-        return makeDate(anchorDate.getDate());
-    }
-
-    if (occurrence === 'Every Week' || occurrence === 'Twice a Week' || occurrence === 'Every Other Week') {
-        const weekdays = (bill.dueDays && bill.dueDays.length > 0) ? bill.dueDays : [anchorDate.getDay()];
-        const sortedDays = [...weekdays].sort((a, b) => a - b);
-        const lastDay = monthEnd.getDate();
-
-        for (let day = 1; day <= lastDay; day += 1) {
-            const candidate = new Date(year, monthIndex, day);
-            if (!sortedDays.includes(candidate.getDay())) continue;
-
-            if (occurrence === 'Every Other Week') {
-                const diffDays = Math.floor((candidate.getTime() - anchorDate.getTime()) / (1000 * 60 * 60 * 24));
-                if (diffDays < 0 || Math.floor(diffDays / 7) % 2 !== 0) continue;
-            }
-
-            if (candidate < anchorDate) continue;
-            return candidate;
-        }
-        return null;
-    }
-
-    if (occurrence === 'Twice a Month') {
-        const day = (bill.dueDays && bill.dueDays.length > 0)
-            ? [...bill.dueDays].sort((a, b) => a - b)[0]
-            : anchorDate.getDate();
-        return normalizeStartMonthDate(makeDate(day));
-    }
-
-    if (occurrence === 'Installments') {
-        return normalizeStartMonthDate(makeDate(anchorDate.getDate()));
-    }
-
-    const monthlyDay = (bill.dueDays && bill.dueDays.length > 0) ? bill.dueDays[0] : anchorDate.getDate();
-    return normalizeStartMonthDate(makeDate(monthlyDay));
+    const start = new Date(year, monthIndex, 1);
+    const end = new Date(year, monthIndex + 1, 0);
+    const occurrences = getBillOccurrencesInInterval(bill, start, end);
+    return occurrences.length > 0 ? occurrences[0] : null;
 };
 
 /**
@@ -399,69 +477,17 @@ export const getRecurringDueDateForMonth = (bill: Bill, monthIndex: number, year
  * Returns null if there's no next date (e.g. one-time bills).
  */
 export const calculateNextDueDate = (bill: Bill): Date | null => {
-    const currentDueDate = parseDate(bill.dueDate);
-    let nextDueDate = new Date(currentDueDate);
-
-    if (bill.dueDays && bill.dueDays.length > 0) {
-        const sortedDays = [...bill.dueDays].sort((a, b) => a - b);
-        const occurrence = bill.occurrence || 'Every Month';
-
-        if (occurrence.includes('Week')) {
-            const currentDay = currentDueDate.getDay();
-            const nextDay = sortedDays.find(d => d > currentDay);
-            if (nextDay !== undefined) {
-                nextDueDate.setDate(currentDueDate.getDate() + (nextDay - currentDay));
-            } else {
-                nextDueDate.setDate(currentDueDate.getDate() + (7 - currentDay + sortedDays[0]));
-            }
-        } else {
-            const currentDate = currentDueDate.getDate();
-            const nextDay = sortedDays.find(d => d > currentDate);
-            if (nextDay !== undefined) {
-                nextDueDate.setDate(nextDay);
-                if (nextDueDate.getDate() !== nextDay) nextDueDate.setDate(0);
-            } else {
-                nextDueDate.setMonth(currentDueDate.getMonth() + 1);
-                nextDueDate.setDate(sortedDays[0]);
-                if (nextDueDate.getDate() !== sortedDays[0]) nextDueDate.setDate(0);
-            }
-        }
-    } else {
-        switch (bill.occurrence) {
-            case 'One Time':
-                return null;
-            case 'Every Week':
-                nextDueDate.setDate(currentDueDate.getDate() + 7);
-                break;
-            case 'Every Other Week':
-                nextDueDate.setDate(currentDueDate.getDate() + 14);
-                break;
-            case 'Twice a Month':
-                nextDueDate.setDate(currentDueDate.getDate() + 15);
-                break;
-            case 'Twice a Week':
-                nextDueDate.setDate(currentDueDate.getDate() + 3);
-                break;
-            case 'Installments':
-                if (bill.installmentRecurrence === 'bi-weekly') {
-                    nextDueDate.setDate(currentDueDate.getDate() + 14);
-                } else {
-                    nextDueDate.setMonth(currentDueDate.getMonth() + 1);
-                }
-                break;
-            case 'Every Quarter':
-                nextDueDate.setMonth(currentDueDate.getMonth() + 3);
-                break;
-            case 'Every Year':
-                nextDueDate.setFullYear(currentDueDate.getFullYear() + 1);
-                break;
-            default:
-                nextDueDate.setMonth(currentDueDate.getMonth() + 1);
-        }
-    }
-
-    if (nextDueDate.getTime() !== currentDueDate.getTime()) {
-        return nextDueDate;
-    }
-    return null;
+    // Start search window from today (or tomorrow if we want upcoming)
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    
+    // Look ahead 1 year maximum for the next instance
+    const oneYearLater = new Date(tomorrow);
+    oneYearLater.setFullYear(oneYearLater.getFullYear() + 1);
+    
+    const nextOccurrences = getBillOccurrencesInInterval(bill, tomorrow, oneYearLater);
+    return nextOccurrences.length > 0 ? nextOccurrences[0] : null;
 };
+
