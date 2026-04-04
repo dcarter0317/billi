@@ -327,8 +327,8 @@ export const getBillStatusColor = (bill: Bill, theme: any) => {
  * Returns all occurrences of a bill that fall within the given [start, end] interval.
  */
 export const getBillOccurrencesInInterval = (bill: Bill, start: Date, end: Date): Date[] => {
-    const occurrence = bill.occurrence || 'Every Month';
-    const isRecurring = bill.isRecurring || occurrence !== 'One Time';
+    const occurrence = bill.occurrence;
+    const isRecurring = bill.isRecurring ?? (occurrence ? occurrence !== 'One Time' : false);
     const anchorDate = parseDate(bill.dueDate);
     const results: Date[] = [];
 
@@ -360,28 +360,40 @@ export const getBillOccurrencesInInterval = (bill: Bill, start: Date, end: Date)
             }
         }
     } else if (occurrence === 'Every Quarter') {
-        // Every 3 months from anchor
+        const anchorDay = a.getDate();
         let candidate = new Date(a);
         while (candidate <= e) {
             if (candidate >= s && candidate >= a) {
                 results.push(new Date(candidate));
             }
-            candidate.setMonth(candidate.getMonth() + 3);
+            // Move month then clamp to anchor day
+            const targetMonth = candidate.getMonth() + 3;
+            const targetYear = candidate.getFullYear();
+            candidate.setDate(1);
+            candidate.setMonth(targetMonth);
+            const daysInMonth = new Date(candidate.getFullYear(), candidate.getMonth() + 1, 0).getDate();
+            candidate.setDate(Math.min(anchorDay, daysInMonth));
         }
     } else if (occurrence === 'Every Month' || occurrence === 'Installments') {
-        // Every month from anchor
+        const anchorDay = a.getDate();
         let candidate = new Date(a);
-        // If it's installments, check end date too
         const instEndDate = bill.installmentEndDate ? parseDate(bill.installmentEndDate) : null;
-        
+        const instRecurrence = occurrence === 'Installments' ? (bill.installmentRecurrence || 'monthly') : 'monthly';
+
         while (candidate <= e && (!instEndDate || candidate <= instEndDate)) {
             if (candidate >= s && candidate >= a) {
                 results.push(new Date(candidate));
             }
-            candidate.setMonth(candidate.getMonth() + 1);
-            // Handle month end clamping (e.g. Jan 31 -> Feb 28)
-            if (candidate.getDate() !== a.getDate()) {
-                candidate.setDate(0);
+
+            if (instRecurrence === 'bi-weekly') {
+                candidate.setDate(candidate.getDate() + 14);
+            } else {
+                // Monthly with clamping
+                const targetMonth = candidate.getMonth() + 1;
+                candidate.setDate(1);
+                candidate.setMonth(targetMonth);
+                const daysInMonth = new Date(candidate.getFullYear(), candidate.getMonth() + 1, 0).getDate();
+                candidate.setDate(Math.min(anchorDay, daysInMonth));
             }
         }
     } else if (occurrence === 'Twice a Month') {
@@ -465,8 +477,10 @@ export const getRecurringDueDateForMonth = (bill: Bill, monthIndex: number, year
  * Returns null if there's no next date (e.g. one-time bills).
  */
 export const calculateNextDueDate = (bill: Bill): Date | null => {
-    const currentDueDate = parseDate(bill.dueDate);
-    const tomorrow = new Date(currentDueDate);
+    // Start search window from today (or tomorrow if we want upcoming)
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
     
     // Look ahead 1 year maximum for the next instance

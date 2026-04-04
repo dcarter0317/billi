@@ -102,10 +102,13 @@ export default function BillsScreen() {
 
             const occurrences = getBillOccurrencesInInterval(bill, start, end);
             occurrences.forEach(occDate => {
-                const isOriginal = formatDate(occDate) === bill.dueDate;
+                const formattedOcc = formatDate(occDate);
+                const normalizedOriginal = formatDate(parseDate(bill.dueDate));
+                const isOriginal = formattedOcc === normalizedOriginal;
+                
                 result.push({
                     ...bill,
-                    dueDate: formatDate(occDate),
+                    dueDate: formattedOcc,
                     // If it's a projected occurrence, reset paid/cleared status
                     ...(isOriginal ? {} : { isPaid: false, isCleared: false, clearedDate: undefined })
                 });
