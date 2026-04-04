@@ -11,7 +11,7 @@ import DraggableFlatList, {
 // Remove unused GHTouchableOpacity
 
 import { useBills, Bill } from '../../context/BillContext';
-import { MONTHS, parseDate, getBillStatusColor, getBillAlertStatus, formatDate, getRecurringDueDateForMonth } from '../../utils/date';
+import { MONTHS, parseDate, getBillStatusColor, getBillAlertStatus, formatDate, getRecurringDueDateForMonth, getBillOccurrencesInInterval } from '../../utils/date';
 import { getCurrencySymbol, formatAmount } from '../../utils/currency';
 import { CATEGORY_ICONS } from '../../constants/categories';
 import { useIsFocused } from '@react-navigation/native';
@@ -72,56 +72,47 @@ export default function BillsScreen() {
             return true;
         };
 
-        if (filterPeriod === 'monthly') {
-            if (selectedMonth === -1) return bills.filter(bill => matchesCategory(bill) && matchesStatus(bill));
+        const result: Bill[] = [];
+        const currentYear = new Date().getFullYear();
 
-            const currentYear = new Date().getFullYear();
+        bills.forEach(bill => {
+            if (!matchesCategory(bill)) return;
+            if (!matchesStatus(bill)) return;
+            if (!bill.title.toLowerCase().includes(searchQuery.toLowerCase())) return;
 
-            return bills.reduce((acc: Bill[], bill) => {
-                const matchesSearch = bill.title.toLowerCase().includes(searchQuery.toLowerCase());
-                if (!matchesSearch) return acc;
-                if (!matchesCategory(bill)) return acc;
-                if (!matchesStatus(bill)) return acc;
+            if (filterPeriod === 'all') {
+                result.push(bill);
+                return;
+            }
 
-                const billDate = parseDate(bill.dueDate);
-                if (billDate.getMonth() === selectedMonth && billDate.getFullYear() === currentYear) {
-                    acc.push(bill);
-                    return acc;
+            let start: Date, end: Date;
+            if (filterPeriod === 'monthly') {
+                if (selectedMonth === -1) {
+                    result.push(bill);
+                    return;
                 }
+                start = new Date(currentYear, selectedMonth, 1);
+                end = new Date(currentYear, selectedMonth + 1, 0);
+            } else {
+                const interval = intervals[filterPeriod as keyof typeof intervals];
+                if (!interval) return;
+                start = interval.start;
+                end = interval.end;
+            }
 
-                const recurringDueDate = getRecurringDueDateForMonth(bill, selectedMonth, currentYear);
-                if (recurringDueDate) {
-                    acc.push({
-                        ...bill,
-                        dueDate: formatDate(recurringDueDate),
-                        isPaid: false,
-                        isCleared: false,
-                        clearedDate: undefined
-                    });
-                }
-
-                return acc;
-            }, []);
-        }
-
-        return bills.filter(bill => {
-            const matchesSearch = bill.title.toLowerCase().includes(searchQuery.toLowerCase());
-            if (!matchesSearch) return false;
-            if (!matchesCategory(bill)) return false;
-            if (!matchesStatus(bill)) return false;
-
-            if (filterPeriod === 'all') return true;
-
-            const billDate = parseDate(bill.dueDate);
-            const interval = intervals[filterPeriod as keyof typeof intervals];
-            if (!interval) return false;
-
-            if (billDate >= interval.start && billDate <= interval.end) return true;
-
-            if (bill.isRecurring && interval.start > billDate) return true;
-
-            return false;
+            const occurrences = getBillOccurrencesInInterval(bill, start, end);
+            occurrences.forEach(occDate => {
+                const isOriginal = formatDate(occDate) === bill.dueDate;
+                result.push({
+                    ...bill,
+                    dueDate: formatDate(occDate),
+                    // If it's a projected occurrence, reset paid/cleared status
+                    ...(isOriginal ? {} : { isPaid: false, isCleared: false, clearedDate: undefined })
+                });
+            });
         });
+
+        return result.sort((a, b) => parseDate(a.dueDate).getTime() - parseDate(b.dueDate).getTime());
     }, [bills, searchQuery, filterPeriod, selectedMonth, intervals, selectedCategory, statusFilter]);
 
     const paidTotal = useMemo(() => {
@@ -327,7 +318,7 @@ export default function BillsScreen() {
                             setBills(data);
                         }
                     }}
-                    keyExtractor={(item) => item.id}
+                    keyExtractor={(item) => `${item.id}-${item.dueDate}`}
                     renderItem={renderItem}
                     ListHeaderComponent={
                         <View>

@@ -6,7 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useUser } from '../../context/UserContext';
 import { useBills, Bill } from '../../context/BillContext';
-import { MONTHS, parseDate, formatDate } from '../../utils/date';
+import { MONTHS, parseDate, formatDate, getBillOccurrencesInInterval } from '../../utils/date';
 import { supabase } from '../../services/supabase';
 import { getCurrencySymbol } from '../../utils/currency';
 import { useFocusEffect } from '@react-navigation/native';
@@ -54,32 +54,60 @@ export default function HomeScreen() {
 
     // Unified logic: First filter bills by period AND search AND category, then derive stats
     const { upcomingBills, settledBills, totalDue, paidTotal } = useMemo(() => {
-        const upcoming = bills.filter((bill: Bill) => {
+        const upcoming: Bill[] = [];
+        
+        bills.forEach((bill: Bill) => {
             if (bill.isPaid || bill.isCleared) {
-                return false;
+                return;
             }
             if (searchQuery.length > 0 && !bill.title.toLowerCase().includes(searchQuery.toLowerCase())) {
-                return false;
+                return;
             }
             if (selectedCategory !== 'All' && bill.category !== selectedCategory) {
-                return false;
+                return;
             }
-            if (filterPeriod === 'all') return true;
 
-            const billDate = parseDate(bill.dueDate);
-            const today = new Date();
-            today.setHours(0, 0, 0, 0);
-            const currentYear = today.getFullYear();
+            if (filterPeriod === 'all') {
+                upcoming.push(bill);
+                return;
+            }
+
+            const currentYear = new Date().getFullYear();
 
             if (filterPeriod === 'monthly') {
-                if (selectedMonth === -1) return true;
-                return billDate.getMonth() === selectedMonth && billDate.getFullYear() === currentYear;
+                if (selectedMonth === -1) {
+                    upcoming.push(bill);
+                    return;
+                }
+                
+                // For monthly, we use the same "projection" logic
+                const monthStart = new Date(currentYear, selectedMonth, 1);
+                const monthEnd = new Date(currentYear, selectedMonth + 1, 0);
+                const occurrences = getBillOccurrencesInInterval(bill, monthStart, monthEnd);
+                
+                occurrences.forEach(occDate => {
+                    upcoming.push({
+                        ...bill,
+                        dueDate: formatDate(occDate)
+                    });
+                });
+                return;
             }
 
             const interval = intervals[filterPeriod as keyof typeof intervals];
-            if (!interval) return false;
-            return billDate >= interval.start && billDate <= interval.end;
-        }).sort((a: Bill, b: Bill) => parseDate(a.dueDate).getTime() - parseDate(b.dueDate).getTime());
+            if (!interval) return;
+
+            const occurrences = getBillOccurrencesInInterval(bill, interval.start, interval.end);
+            occurrences.forEach(occDate => {
+                upcoming.push({
+                    ...bill,
+                    dueDate: formatDate(occDate)
+                });
+            });
+        });
+
+        // Unique by ID + Due Date (in case of weekly bills showing twice)
+        const sortedUpcoming = upcoming.sort((a: Bill, b: Bill) => parseDate(a.dueDate).getTime() - parseDate(b.dueDate).getTime());
 
         const settled = transactions.filter(t => {
             if (searchQuery.length > 0 && !t.title.toLowerCase().includes(searchQuery.toLowerCase())) return false;
@@ -96,10 +124,10 @@ export default function HomeScreen() {
             return tDate >= interval.start && tDate <= interval.end;
         });
 
-        const due = upcoming.reduce((sum: number, bill: Bill) => sum + (parseFloat(bill.amount) || 0), 0);
+        const due = sortedUpcoming.reduce((sum: number, bill: Bill) => sum + (parseFloat(bill.amount) || 0), 0);
         const paid = settled.reduce((sum: number, t: Transaction) => sum + (parseFloat(t.amount) || 0), 0);
 
-        return { upcomingBills: upcoming, settledBills: settled, totalDue: due, paidTotal: paid };
+        return { upcomingBills: sortedUpcoming, settledBills: settled, totalDue: due, paidTotal: paid };
     }, [filterPeriod, selectedMonth, intervals, bills, transactions, searchQuery, selectedCategory]);
 
     const isFiltered = searchQuery.length > 0 || selectedCategory !== 'All';
@@ -197,7 +225,7 @@ export default function HomeScreen() {
 
                 {upcomingBills.length > 0 ? upcomingBills.map((bill: Bill) => (
                     <BillCard
-                        key={bill.id}
+                        key={`${bill.id}-${bill.dueDate}`}
                         bill={bill}
                         filterPeriod={filterPeriod}
                         selectedMonth={selectedMonth}
