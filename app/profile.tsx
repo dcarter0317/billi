@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { View, StyleSheet, ScrollView, TouchableOpacity, Alert, Platform } from 'react-native';
-import { Text, TextInput, Button, Avatar, useTheme, Switch, List, Menu, PaperProvider } from 'react-native-paper';
+import { Text, TextInput, Button, Avatar, useTheme, Switch, List, Menu } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
@@ -51,13 +51,11 @@ export default function ProfileScreen() {
         const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
         if (status !== 'granted') {
             Alert.alert('Permission needed', 'Sorry, we need camera roll permissions to make this work!');
-            return;
-        }
-
-        let result = await ImagePicker.launchImageLibraryAsync({
-            mediaTypes: ImagePicker.MediaTypeOptions.Images,
-            allowsEditing: true,
-            aspect: [1, 1],
+            return (
+                <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}> 
+                    {/* ...existing code... */}
+                </SafeAreaView>
+            );
             quality: 0.5,
         });
 

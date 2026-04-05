@@ -159,16 +159,13 @@ export function UserProvider({ children }: { children: ReactNode }) {
         }
     };
 
-    // Proactively set the token provider as soon as we have a session
-    // This helps prevent race conditions where other contexts try to use Supabase 
-    // before the effect has a chance to run.
-    if (session) {
-        setSupabaseTokenProvider(() => {
-            return session.getToken({ template: 'supabase' });
-        });
-    }
-
+    // Set the token provider in an effect to avoid render-time side effects
     useEffect(() => {
+        if (session) {
+            setSupabaseTokenProvider(() => {
+                return session.getToken({ template: 'supabase' });
+            });
+        }
     }, [session]);
 
     const signOut = async () => {

@@ -45,11 +45,19 @@ export function UserPreferencesProvider({ children }: { children: ReactNode }) {
         notificationsEnabled: true,
         biometricsEnabled: false,
         currency: 'USD',
-        payPeriodStart: new Date(2026, 0, 26).getTime(),
+        payPeriodStart: new Date(new Date().getFullYear(), new Date().getMonth(), 1).getTime(),
         payPeriodOccurrence: 'bi-weekly',
         payPeriodSemiMonthlyDays: [15, 30],
         upcomingReminderDays: 2,
     });
+
+    // Helper to guard against Apple relay emails
+    function getNonRelayEmail(currentEmail: string, dbEmail?: string): string {
+        if (dbEmail && !dbEmail.endsWith('.appleid.com') && currentEmail.endsWith('.appleid.com')) {
+            return dbEmail;
+        }
+        return currentEmail;
+    }
 
     // Derive isDarkMode based on themeMode and system preference
     const isDarkMode = preferences.themeMode === 'system'
@@ -120,9 +128,7 @@ export function UserPreferencesProvider({ children }: { children: ReactNode }) {
 
                     const currentEmail = user.email;
                     const dbEmail = existing?.email;
-                    const finalEmail = (dbEmail && !dbEmail.endsWith('.appleid.com') && currentEmail.endsWith('.appleid.com'))
-                        ? dbEmail
-                        : currentEmail;
+                    const finalEmail = getNonRelayEmail(currentEmail, dbEmail);
 
                     const { error: upsertError } = await supabase.from('profiles').upsert({
                         id: user.id,

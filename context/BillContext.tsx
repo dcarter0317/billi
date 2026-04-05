@@ -5,13 +5,6 @@ import { getCurrencySymbol, formatAmount } from '../utils/currency';
 import { supabase } from '../services/supabase';
 import { useUser } from './UserContext';
 
-export interface PaymentRecord {
-    id: string;
-    date: string;
-    amount: string;
-    installmentNumber: number;
-}
-
 export interface Bill {
     id: string;
     title: string;
@@ -32,7 +25,7 @@ export interface Bill {
     installmentEndDate?: string;
     installmentRecurrence?: 'bi-weekly' | 'monthly';
     remainingBalance?: string;
-    paymentHistory?: PaymentRecord[];
+    // paymentHistory removed; use transactions table instead
     notes?: string;
     isRecurring?: boolean;
 }
@@ -47,7 +40,7 @@ interface BillContextType {
     toggleBillStatus: (id: string, providedDueDate?: string) => Promise<void>;
     toggleClearStatus: (id: string, providedDueDate?: string) => Promise<void>;
     resetAllStatuses: () => Promise<void>;
-    setBills: (bills: Bill[]) => void;
+    setBills: (bills: Bill[]) => Promise<void>;
     refreshBills: () => Promise<void>;
     deletePaymentRecord: (billId: string, recordId: string) => Promise<void>;
 }
@@ -88,6 +81,10 @@ export function BillProvider({ children }: { children: ReactNode }) {
         remaining_balance: number | null;
     }
 
+    const formatOptionalAmount = (value: number | null | undefined): string | undefined => {
+        if (value === null || value === undefined) return undefined;
+        return formatAmount(value);
+    };
     const mapDbBillToLocal = (dbBill: DbBill): Bill => ({
         id: dbBill.id,
         title: dbBill.title,
@@ -104,11 +101,11 @@ export function BillProvider({ children }: { children: ReactNode }) {
         paidInstallments: dbBill.paid_installments ?? undefined,
         isRecurring: dbBill.is_recurring || false,
         notes: dbBill.notes || '',
-        totalInstallmentAmount: formatAmount(dbBill.total_installment_amount),
+        totalInstallmentAmount: formatOptionalAmount(dbBill.total_installment_amount),
         installmentStartDate: dbBill.installment_start_date ? formatDate(parseDate(dbBill.installment_start_date)) : undefined,
         installmentEndDate: dbBill.installment_end_date ? formatDate(parseDate(dbBill.installment_end_date)) : undefined,
         installmentRecurrence: (dbBill.installment_recurrence as Bill['installmentRecurrence']) ?? undefined,
-        remainingBalance: formatAmount(dbBill.remaining_balance),
+        remainingBalance: formatOptionalAmount(dbBill.remaining_balance),
     });
 
     const toDbDate = (dateStr: string): string => {

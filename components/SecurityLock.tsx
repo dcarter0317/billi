@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, StyleSheet, Image } from 'react-native';
+import { View, StyleSheet } from 'react-native';
 import { Text, Button, useTheme } from 'react-native-paper';
 import { ShieldCheck, Fingerprint } from 'lucide-react-native';
 import { usePreferences } from '../context/UserPreferencesContext';

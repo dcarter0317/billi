@@ -46,9 +46,9 @@ export default function SettingsScreen() {
         }
     };
 
-    const onToggleBiometrics = (value: boolean) => {
-        toggleBiometrics();
-        if (value) {
+    const onToggleBiometrics = async (value: boolean) => {
+        const success = await toggleBiometrics();
+        if (success && value) {
             Alert.alert("Security", "Biometric unlock will be required on next launch.");
         }
     };

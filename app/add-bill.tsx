@@ -56,7 +56,6 @@ export default function AddBillScreen() {
     const [isPaid, setIsPaid] = useState(false);
     const [isCleared, setIsCleared] = useState(false);
     const [notes, setNotes] = useState('');
-    const [isRecurring, setIsRecurring] = useState(false);
 
 
     // New State
@@ -103,8 +102,6 @@ export default function AddBillScreen() {
             if (editingBill.installmentEndDate) setInstallmentEndDate(editingBill.installmentEndDate);
             if (editingBill.installmentRecurrence) setInstallmentRecurrence(editingBill.installmentRecurrence);
             setNotes(editingBill.notes || '');
-            setIsRecurring(editingBill.isRecurring || false);
-
         }
     }, [editingBill]);
 

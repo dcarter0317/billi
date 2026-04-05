@@ -3,11 +3,28 @@ import { Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import { createClient } from '@supabase/supabase-js';
 
+
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '';
 
-// Global to hold the function that fetches the latest Clerk JWT
+// Fail-fast validation for required env vars
+if (!supabaseUrl) {
+    throw new Error('[Supabase] Missing EXPO_PUBLIC_SUPABASE_URL in environment variables');
+}
+if (!supabaseAnonKey) {
+    throw new Error('[Supabase] Missing EXPO_PUBLIC_SUPABASE_ANON_KEY in environment variables');
+}
+
+
+// Initialization guard for Clerk token provider
 let getClerkToken: (() => Promise<string | null>) | null = null;
+let isTokenProviderInitialized = false;
+let initializationResolvers: Array<() => void> = [];
+
+export function waitForInitialization(): Promise<void> {
+    if (isTokenProviderInitialized) return Promise.resolve();
+    return new Promise((resolve) => initializationResolvers.push(resolve));
+}
 
 const ExpoSecureStoreAdapter = {
     getItem: (key: string) => SecureStore.getItemAsync(key),
@@ -49,25 +66,29 @@ const WebStorageAdapter = {
  * This ensures the token is fresh on every request.
  */
 const customFetch = async (url: string, options: any = {}) => {
-    const headers = new Headers(options.headers || {});
+    if (!isTokenProviderInitialized) {
+        // Option 1: Wait for initialization (queue)
+        // await waitForInitialization();
+        // Option 2: Fail loudly
+        throw new Error('[Supabase] Attempted request before Clerk token provider initialization.');
+    }
 
-    // Always ensure the Supabase anon key is present as 'apikey'
+    const headers = new Headers(options.headers || {});
     headers.set('apikey', supabaseAnonKey);
 
     if (getClerkToken) {
         try {
             const token = await getClerkToken();
             if (token) {
-                // console.log('[Supabase] Injected Clerk token:', token.substring(0, 10) + '...');
                 headers.set('Authorization', `Bearer ${token}`);
             } else {
-                console.warn('[Supabase] Clerk token provider returned null/undefined. Request may be unauthenticated.');
+                throw new Error('[Supabase] Clerk token provider returned null/undefined. Request aborted.');
             }
         } catch (tokenErr) {
-            console.error('[Supabase] Failed to get Clerk token:', tokenErr);
+            throw new Error('[Supabase] Failed to get Clerk token: ' + tokenErr);
         }
     } else {
-        console.warn('[Supabase] No Clerk token provider set. Request will be unauthenticated.');
+        throw new Error('[Supabase] No Clerk token provider set. Request aborted.');
     }
 
     options.headers = headers;
@@ -91,4 +112,7 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
  */
 export const setSupabaseTokenProvider = (provider: () => Promise<string | null>) => {
     getClerkToken = provider;
+    isTokenProviderInitialized = true;
+    initializationResolvers.forEach((resolve) => resolve());
+    initializationResolvers = [];
 };

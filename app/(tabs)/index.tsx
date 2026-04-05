@@ -127,7 +127,8 @@ export default function HomeScreen() {
         const due = sortedUpcoming.reduce((sum: number, bill: Bill) => sum + (parseFloat(bill.amount) || 0), 0);
         const paid = settled.reduce((sum: number, t: Transaction) => sum + (parseFloat(t.amount) || 0), 0);
 
-        return { upcomingBills: sortedUpcoming, settledBills: settled, totalDue: due, paidTotal: paid };
+        const paidLabel = filterPeriod === 'all' ? 'paid (all time)' : 'paid this month';
+        return { upcomingBills: sortedUpcoming, settledBills: settled, totalDue: due, paidTotal: paid, paidLabel };
     }, [filterPeriod, selectedMonth, intervals, bills, transactions, searchQuery, selectedCategory]);
 
     const isFiltered = searchQuery.length > 0 || selectedCategory !== 'All';
@@ -184,9 +185,9 @@ export default function HomeScreen() {
                             {currencySymbol}{totalDue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </Text>
                         <View style={styles.badgeRow}>
-                            <View style={[styles.badge, { backgroundColor: 'rgba(255,255,255,0.15)' }]}>
+                            <View style={[styles.badge, { backgroundColor: 'rgba(255,255,255,0.15)' }]}> 
                                 <Text variant="labelMedium" style={{ color: theme.colors.onPrimary }}>
-                                    + {currencySymbol}{paidTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {isFiltered ? 'paid (filtered)' : (filterPeriod === 'all' ? 'paid this month' : 'paid in period')}
+                                    + {currencySymbol}{paidTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {isFiltered ? 'paid (filtered)' : paidLabel}
                                 </Text>
                             </View>
                         </View>
