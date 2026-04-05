@@ -149,6 +149,7 @@ export function BillProvider({ children }: { children: ReactNode }) {
         setLoading(true);
         try {
             if (isSignedIn && user) {
+                await waitForInitialization();
                 const { data, error } = await supabase
                     .from('bills')
                     .select('*')
@@ -190,6 +191,7 @@ export function BillProvider({ children }: { children: ReactNode }) {
             // Deduplication logic: Check for an existing transaction for this bill created today.
             const today = new Date().toISOString().split('T')[0];
 
+            await waitForInitialization();
             const { data: existingRows, error: fetchError } = await supabase
                 .from('transactions')
                 .select('id, settlement_type')
@@ -202,6 +204,7 @@ export function BillProvider({ children }: { children: ReactNode }) {
             if (fetchError) throw fetchError;
 
             if (existing) {
+                await waitForInitialization();
                 const { error: updateError } = await supabase
                     .from('transactions')
                     .update({
@@ -213,6 +216,7 @@ export function BillProvider({ children }: { children: ReactNode }) {
 
                 if (updateError) throw updateError;
             } else {
+                await waitForInitialization();
                 const { error: insertError } = await supabase
                     .from('transactions')
                     .insert({
@@ -253,6 +257,7 @@ export function BillProvider({ children }: { children: ReactNode }) {
 
         try {
             if (isSignedIn && user) {
+                await waitForInitialization();
                 const localBill: Omit<Bill, 'id'> = {
                     ...bill,
                     dueDate: formatDate(parseDate(bill.dueDate)),
@@ -296,6 +301,7 @@ export function BillProvider({ children }: { children: ReactNode }) {
 
         try {
             if (isSignedIn && user) {
+                await waitForInitialization();
                 const dbUpdates = mapLocalBillToDb(updates, user.id);
                 delete (dbUpdates as any).id;
                 delete dbUpdates.user_id;
@@ -328,6 +334,7 @@ export function BillProvider({ children }: { children: ReactNode }) {
 
         try {
             if (isSignedIn && user) {
+                await waitForInitialization();
                 const { error } = await supabase
                     .from('bills')
                     .delete()
@@ -398,21 +405,21 @@ export function BillProvider({ children }: { children: ReactNode }) {
         await updateBill(id, updates);
     };
 
+    // Deletes a payment record from the transactions table for the given bill
     const deletePaymentRecord = async (billId: string, recordId: string) => {
-        const bill = bills.find(b => b.id === billId);
-        if (!bill || !bill.paymentHistory) return;
-
-        const updatedHistory = bill.paymentHistory.filter(r => r.id !== recordId);
-        const newPaidInstallments = updatedHistory.length;
-        const remainingBalance = bill.totalInstallmentAmount
-            ? formatAmount((parseFloat(bill.totalInstallmentAmount) || 0) - ((parseFloat(bill.amount) || 0) * newPaidInstallments))
-            : undefined;
-
-        await updateBill(billId, {
-            paymentHistory: updatedHistory,
-            paidInstallments: newPaidInstallments,
-            remainingBalance,
-        });
+        try {
+            await waitForInitialization();
+            const { error } = await supabase
+                .from('transactions')
+                .delete()
+                .eq('id', recordId)
+                .eq('bill_id', billId);
+            if (error) throw error;
+            // Optionally, refresh bills or transactions if needed
+            await refreshBills();
+        } catch (err) {
+            console.error('Error deleting payment record:', err);
+        }
     };
 
     const toggleClearStatus = async (id: string, providedDueDate?: string) => {
@@ -456,6 +463,7 @@ export function BillProvider({ children }: { children: ReactNode }) {
 
         try {
             if (isSignedIn && user) {
+                await waitForInitialization();
                 const { error } = await supabase
                     .from('bills')
                     .update({
@@ -487,6 +495,7 @@ export function BillProvider({ children }: { children: ReactNode }) {
                     id: b.id // Ensure we keep the same ID
                 }));
 
+                await waitForInitialization();
                 const { error } = await supabase
                     .from('bills')
                     .upsert(dbBills);

@@ -127,7 +127,23 @@ export default function HomeScreen() {
         const due = sortedUpcoming.reduce((sum: number, bill: Bill) => sum + (parseFloat(bill.amount) || 0), 0);
         const paid = settled.reduce((sum: number, t: Transaction) => sum + (parseFloat(t.amount) || 0), 0);
 
-        const paidLabel = filterPeriod === 'all' ? 'paid (all time)' : 'paid this month';
+        let paidLabel = 'paid';
+        switch (filterPeriod) {
+            case 'all':
+                paidLabel = 'paid (all time)';
+                break;
+            case 'this':
+                paidLabel = 'paid this month';
+                break;
+            case 'last':
+                paidLabel = 'paid last month';
+                break;
+            case 'next':
+                paidLabel = 'paid next month';
+                break;
+            default:
+                paidLabel = 'paid';
+        }
         return { upcomingBills: sortedUpcoming, settledBills: settled, totalDue: due, paidTotal: paid, paidLabel };
     }, [filterPeriod, selectedMonth, intervals, bills, transactions, searchQuery, selectedCategory]);
 

@@ -51,36 +51,44 @@ export const formatDate = (date: Date): string => {
     return `${month}-${day}-${year}`;
 };
 
-            const anchorDay = anchorDate.getDate();
-            let targetMonth = now.getMonth();
-            let targetYear = now.getFullYear();
-            if (now.getDate() < anchorDay) {
-                targetMonth -= 1;
-                if (targetMonth < 0) {
-                    targetMonth = 11;
-                    targetYear -= 1;
-                }
-            }
-            targetMonth += offset;
-            while (targetMonth < 0) {
-                targetMonth += 12;
-                targetYear -= 1;
-            }
-            while (targetMonth > 11) {
-                targetMonth -= 12;
-                targetYear += 1;
-            }
-            const start = new Date(targetYear, targetMonth, anchorDay);
-            if (start.getDate() !== anchorDay) {
-                start.setDate(0);
-            }
-            const end = new Date(start.getFullYear(), start.getMonth() + 1, start.getDate());
-            if (end.getDate() !== start.getDate()) {
-                end.setDate(0);
-            }
-            end.setDate(end.getDate() - 1);
-            end.setHours(23, 59, 59, 999);
-            return { start, end };
+/**
+ * Returns the start and end date for the anchor month range.
+ * @param anchorDate The anchor date to align the range
+ * @param offset Number of months to shift (default 0)
+ */
+export function getAnchorMonthRange(anchorDate: Date, offset = 0): { start: Date; end: Date } {
+    const now = new Date();
+    const anchorDay = anchorDate.getDate();
+    let targetMonth = now.getMonth();
+    let targetYear = now.getFullYear();
+    if (now.getDate() < anchorDay) {
+        targetMonth -= 1;
+        if (targetMonth < 0) {
+            targetMonth = 11;
+            targetYear -= 1;
+        }
+    }
+    targetMonth += offset;
+    while (targetMonth < 0) {
+        targetMonth += 12;
+        targetYear -= 1;
+    }
+    while (targetMonth > 11) {
+        targetMonth -= 12;
+        targetYear += 1;
+    }
+    const start = new Date(targetYear, targetMonth, anchorDay);
+    if (start.getDate() !== anchorDay) {
+        start.setDate(0);
+    }
+    const end = new Date(start.getFullYear(), start.getMonth() + 1, start.getDate());
+    if (end.getDate() !== start.getDate()) {
+        end.setDate(0);
+    }
+    end.setDate(end.getDate() - 1);
+    end.setHours(23, 59, 59, 999);
+    return { start, end };
+}
         };
         const currentDay = now.getDate();
         let currentShift = 0;

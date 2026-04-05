@@ -2,12 +2,13 @@ import React from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Card, Text, Avatar, useTheme } from 'react-native-paper';
 import { Bill } from '../context/BillContext';
+import { FilterPeriod } from '../types';
 import { getBillAlertStatus, getBillStatusColor, parseDate } from '../utils/date';
 import { CATEGORY_ICONS } from '../constants/categories';
 
 interface BillCardProps {
     bill: Bill;
-    filterPeriod?: 'last' | 'this' | 'next' | 'all' | 'monthly';
+    filterPeriod?: FilterPeriod;
     selectedMonth?: number;
     upcomingReminderDays: number;
     currencySymbol: string;

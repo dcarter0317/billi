@@ -29,7 +29,7 @@ export function formatAmount(amount: string | number | undefined | null): string
     const parsed = typeof amount === 'string' ? parseFloat(amount) : amount;
     if (isNaN(parsed)) return '0.00';
     if (!isFinite(parsed) || Math.abs(parsed) > 1e20) {
-        return '>1e20';
+        throw new RangeError('amount out of range');
     }
     return parsed.toFixed(2);
 }

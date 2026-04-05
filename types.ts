@@ -1,6 +1,6 @@
 // Shared types used across multiple screens
 
-export type FilterPeriod = 'last' | 'this' | 'next' | 'all';
+export type FilterPeriod = 'last' | 'this' | 'next' | 'all' | 'monthly';
 export type BillStatusFilter = 'all' | 'paid' | 'unpaid';
 
 export interface Transaction {
