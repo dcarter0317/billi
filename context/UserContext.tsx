@@ -44,6 +44,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
         const fetchProfile = async () => {
             try {
+                await waitForInitialization();
                 const { data, error } = await supabase
                     .from('profiles')
                     .select('*')
@@ -110,6 +111,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
             }
 
             // 2. Update Supabase
+            await waitForInitialization();
             const supabaseUpdates: Partial<SupabaseProfile> & { id: string; updated_at: string } = {
                 id: clerkUser.id,
                 updated_at: new Date().toISOString(),
@@ -144,10 +146,13 @@ export function UserProvider({ children }: { children: ReactNode }) {
         try {
             // 1. Clear Supabase Data
             // Transactions first (FK dependency)
+            await waitForInitialization();
             await supabase.from('transactions').delete().eq('user_id', clerkUser.id);
             // Bills
+            await waitForInitialization();
             await supabase.from('bills').delete().eq('user_id', clerkUser.id);
             // Profile last
+            await waitForInitialization();
             await supabase.from('profiles').delete().eq('id', clerkUser.id);
 
             // 2. Delete Clerk Account
@@ -159,16 +164,13 @@ export function UserProvider({ children }: { children: ReactNode }) {
         }
     };
 
-    // Proactively set the token provider as soon as we have a session
-    // This helps prevent race conditions where other contexts try to use Supabase 
-    // before the effect has a chance to run.
-    if (session) {
-        setSupabaseTokenProvider(() => {
-            return session.getToken({ template: 'supabase' });
-        });
-    }
-
+    // Set the token provider in an effect to avoid render-time side effects
     useEffect(() => {
+        if (session) {
+            setSupabaseTokenProvider(() => {
+                return session.getToken({ template: 'supabase' });
+            });
+        }
     }, [session]);
 
     const signOut = async () => {

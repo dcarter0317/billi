@@ -10,9 +10,10 @@ export const tokenCache = {
     },
     async saveToken(key: string, value: string) {
         try {
-            return SecureStore.setItemAsync(key, value);
+            return await SecureStore.setItemAsync(key, value);
         } catch (err) {
-            return;
+            console.error('[Clerk] Failed to save token to SecureStore:', err);
+            throw err;
         }
     },
 };
@@ -20,5 +21,5 @@ export const tokenCache = {
 export const CLERK_PUBLISHABLE_KEY = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY || '';
 
 if (!CLERK_PUBLISHABLE_KEY) {
-    console.warn('Missing EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY in environment variables');
+    throw new Error('[Clerk] Missing EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY in environment variables');
 }

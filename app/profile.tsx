@@ -51,13 +51,11 @@ export default function ProfileScreen() {
         const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
         if (status !== 'granted') {
             Alert.alert('Permission needed', 'Sorry, we need camera roll permissions to make this work!');
-            return;
-        }
-
-        let result = await ImagePicker.launchImageLibraryAsync({
-            mediaTypes: ImagePicker.MediaTypeOptions.Images,
-            allowsEditing: true,
-            aspect: [1, 1],
+            return (
+                <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}> 
+                    {/* ...existing code... */}
+                </SafeAreaView>
+            );
             quality: 0.5,
         });
 

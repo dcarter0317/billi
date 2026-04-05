@@ -5,13 +5,6 @@ import { getCurrencySymbol, formatAmount } from '../utils/currency';
 import { supabase } from '../services/supabase';
 import { useUser } from './UserContext';
 
-export interface PaymentRecord {
-    id: string;
-    date: string;
-    amount: string;
-    installmentNumber: number;
-}
-
 export interface Bill {
     id: string;
     title: string;
@@ -32,7 +25,7 @@ export interface Bill {
     installmentEndDate?: string;
     installmentRecurrence?: 'bi-weekly' | 'monthly';
     remainingBalance?: string;
-    paymentHistory?: PaymentRecord[];
+    // paymentHistory removed; use transactions table instead
     notes?: string;
     isRecurring?: boolean;
 }
@@ -47,7 +40,7 @@ interface BillContextType {
     toggleBillStatus: (id: string, providedDueDate?: string) => Promise<void>;
     toggleClearStatus: (id: string, providedDueDate?: string) => Promise<void>;
     resetAllStatuses: () => Promise<void>;
-    setBills: (bills: Bill[]) => void;
+    setBills: (bills: Bill[]) => Promise<void>;
     refreshBills: () => Promise<void>;
     deletePaymentRecord: (billId: string, recordId: string) => Promise<void>;
 }
@@ -88,6 +81,10 @@ export function BillProvider({ children }: { children: ReactNode }) {
         remaining_balance: number | null;
     }
 
+    const formatOptionalAmount = (value: number | null | undefined): string | undefined => {
+        if (value === null || value === undefined) return undefined;
+        return formatAmount(value);
+    };
     const mapDbBillToLocal = (dbBill: DbBill): Bill => ({
         id: dbBill.id,
         title: dbBill.title,
@@ -104,11 +101,11 @@ export function BillProvider({ children }: { children: ReactNode }) {
         paidInstallments: dbBill.paid_installments ?? undefined,
         isRecurring: dbBill.is_recurring || false,
         notes: dbBill.notes || '',
-        totalInstallmentAmount: formatAmount(dbBill.total_installment_amount),
+        totalInstallmentAmount: formatOptionalAmount(dbBill.total_installment_amount),
         installmentStartDate: dbBill.installment_start_date ? formatDate(parseDate(dbBill.installment_start_date)) : undefined,
         installmentEndDate: dbBill.installment_end_date ? formatDate(parseDate(dbBill.installment_end_date)) : undefined,
         installmentRecurrence: (dbBill.installment_recurrence as Bill['installmentRecurrence']) ?? undefined,
-        remainingBalance: formatAmount(dbBill.remaining_balance),
+        remainingBalance: formatOptionalAmount(dbBill.remaining_balance),
     });
 
     const toDbDate = (dateStr: string): string => {
@@ -152,6 +149,7 @@ export function BillProvider({ children }: { children: ReactNode }) {
         setLoading(true);
         try {
             if (isSignedIn && user) {
+                await waitForInitialization();
                 const { data, error } = await supabase
                     .from('bills')
                     .select('*')
@@ -193,6 +191,7 @@ export function BillProvider({ children }: { children: ReactNode }) {
             // Deduplication logic: Check for an existing transaction for this bill created today.
             const today = new Date().toISOString().split('T')[0];
 
+            await waitForInitialization();
             const { data: existingRows, error: fetchError } = await supabase
                 .from('transactions')
                 .select('id, settlement_type')
@@ -205,6 +204,7 @@ export function BillProvider({ children }: { children: ReactNode }) {
             if (fetchError) throw fetchError;
 
             if (existing) {
+                await waitForInitialization();
                 const { error: updateError } = await supabase
                     .from('transactions')
                     .update({
@@ -216,6 +216,7 @@ export function BillProvider({ children }: { children: ReactNode }) {
 
                 if (updateError) throw updateError;
             } else {
+                await waitForInitialization();
                 const { error: insertError } = await supabase
                     .from('transactions')
                     .insert({
@@ -256,6 +257,7 @@ export function BillProvider({ children }: { children: ReactNode }) {
 
         try {
             if (isSignedIn && user) {
+                await waitForInitialization();
                 const localBill: Omit<Bill, 'id'> = {
                     ...bill,
                     dueDate: formatDate(parseDate(bill.dueDate)),
@@ -299,6 +301,7 @@ export function BillProvider({ children }: { children: ReactNode }) {
 
         try {
             if (isSignedIn && user) {
+                await waitForInitialization();
                 const dbUpdates = mapLocalBillToDb(updates, user.id);
                 delete (dbUpdates as any).id;
                 delete dbUpdates.user_id;
@@ -331,6 +334,7 @@ export function BillProvider({ children }: { children: ReactNode }) {
 
         try {
             if (isSignedIn && user) {
+                await waitForInitialization();
                 const { error } = await supabase
                     .from('bills')
                     .delete()
@@ -401,21 +405,21 @@ export function BillProvider({ children }: { children: ReactNode }) {
         await updateBill(id, updates);
     };
 
+    // Deletes a payment record from the transactions table for the given bill
     const deletePaymentRecord = async (billId: string, recordId: string) => {
-        const bill = bills.find(b => b.id === billId);
-        if (!bill || !bill.paymentHistory) return;
-
-        const updatedHistory = bill.paymentHistory.filter(r => r.id !== recordId);
-        const newPaidInstallments = updatedHistory.length;
-        const remainingBalance = bill.totalInstallmentAmount
-            ? formatAmount((parseFloat(bill.totalInstallmentAmount) || 0) - ((parseFloat(bill.amount) || 0) * newPaidInstallments))
-            : undefined;
-
-        await updateBill(billId, {
-            paymentHistory: updatedHistory,
-            paidInstallments: newPaidInstallments,
-            remainingBalance,
-        });
+        try {
+            await waitForInitialization();
+            const { error } = await supabase
+                .from('transactions')
+                .delete()
+                .eq('id', recordId)
+                .eq('bill_id', billId);
+            if (error) throw error;
+            // Optionally, refresh bills or transactions if needed
+            await refreshBills();
+        } catch (err) {
+            console.error('Error deleting payment record:', err);
+        }
     };
 
     const toggleClearStatus = async (id: string, providedDueDate?: string) => {
@@ -459,6 +463,7 @@ export function BillProvider({ children }: { children: ReactNode }) {
 
         try {
             if (isSignedIn && user) {
+                await waitForInitialization();
                 const { error } = await supabase
                     .from('bills')
                     .update({
@@ -490,6 +495,7 @@ export function BillProvider({ children }: { children: ReactNode }) {
                     id: b.id // Ensure we keep the same ID
                 }));
 
+                await waitForInitialization();
                 const { error } = await supabase
                     .from('bills')
                     .upsert(dbBills);
