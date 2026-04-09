@@ -53,7 +53,7 @@ export default function HomeScreen() {
     );
 
     // Unified logic: First filter bills by period AND search AND category, then derive stats
-    const { upcomingBills, settledBills, totalDue, paidTotal } = useMemo(() => {
+    const { upcomingBills, settledBills, totalDue, paidTotal, paidLabel } = useMemo(() => {
         const upcoming: Bill[] = [];
         
         bills.forEach((bill: Bill) => {

@@ -142,9 +142,6 @@ export const getBillOccurrencesInInterval = (bill: Bill, start: Date, end: Date)
     const e = new Date(end); e.setHours(23, 59, 59, 999);
     const a = new Date(anchorDate); a.setHours(0, 0, 0, 0);
 
-    // If anchor date itself is in range, but we only add it if it's the primary instance.
-    // Actually, let's just calculate all occurrences from the start of the interval to the end.
-
     if (!isRecurring) {
         if (a >= s && a <= e) return [a];
         return [];
@@ -154,8 +151,6 @@ export const getBillOccurrencesInInterval = (bill: Bill, start: Date, end: Date)
     // We already have some logic in getRecurringDueDateForMonth, but let's make it robust.
 
     if (occurrence === 'Every Year') {
-        // Check if the month and day match in any year within the range
-        // Usually range is small (1 month or 15 days), so at most 1 instance.
         const yearStart = s.getFullYear();
         const yearEnd = e.getFullYear();
         for (let y = yearStart; y <= yearEnd; y++) {
@@ -173,7 +168,6 @@ export const getBillOccurrencesInInterval = (bill: Bill, start: Date, end: Date)
             }
             // Move month then clamp to anchor day
             const targetMonth = candidate.getMonth() + 3;
-            const targetYear = candidate.getFullYear();
             candidate.setDate(1);
             candidate.setMonth(targetMonth);
             const daysInMonth = new Date(candidate.getFullYear(), candidate.getMonth() + 1, 0).getDate();
@@ -182,7 +176,7 @@ export const getBillOccurrencesInInterval = (bill: Bill, start: Date, end: Date)
     } else if (occurrence === 'Every Month' || occurrence === 'Installments') {
         const anchorDay = a.getDate();
         let candidate = new Date(a);
-        const instEndDate = bill.installmentEndDate ? parseDate(bill.installmentEndDate) : null;
+        const instEndDate = bill.installmentEndDate ? parseDate(bill.installmentEndDate) : undefined;
         const instRecurrence = occurrence === 'Installments' ? (bill.installmentRecurrence || 'monthly') : 'monthly';
 
         while (candidate <= e && (!instEndDate || candidate <= instEndDate)) {
@@ -202,7 +196,6 @@ export const getBillOccurrencesInInterval = (bill: Bill, start: Date, end: Date)
             }
         }
     } else if (occurrence === 'Twice a Month') {
-        // Usually 15 days apart. Let's assume anchor and anchor + 15
         const d1 = a.getDate();
         const d2 = (d1 + 15) > 30 ? (d1 - 15) : (d1 + 15);
         const days = [d1, d2].sort((x, y) => x - y);
@@ -225,11 +218,9 @@ export const getBillOccurrencesInInterval = (bill: Bill, start: Date, end: Date)
         }
     } else if (occurrence === 'Every Week' || occurrence === 'Twice a Week' || occurrence === 'Every Other Week') {
         const weekdays = (bill.dueDays && bill.dueDays.length > 0) ? bill.dueDays : [a.getDay()];
-        
-        // Start searching from whichever is earlier: anchor or start of interval
-        // But we must respect the "Every Other Week" parity if applicable.
+
         let candidate = new Date(a);
-        
+
         // Optimization: jump closer to 's'
         if (occurrence !== 'Every Other Week' && s > candidate) {
             const diff = s.getTime() - candidate.getTime();
@@ -238,7 +229,7 @@ export const getBillOccurrencesInInterval = (bill: Bill, start: Date, end: Date)
         }
 
         while (candidate <= e) {
-            if (weekdays.includes(candidate.getDay())) {
+            if (weekdays && weekdays.includes(candidate.getDay())) {
                 if (candidate >= s && candidate >= a) {
                     // Check parity for Every Other Week
                     if (occurrence === 'Every Other Week') {
@@ -251,12 +242,7 @@ export const getBillOccurrencesInInterval = (bill: Bill, start: Date, end: Date)
                     }
                 }
             }
-            
-            // Move to next day
             candidate.setDate(candidate.getDate() + 1);
-            
-            // If we have multiple days in a week, we check each day. 
-            // If it's "Every Week" we just keep going.
         }
     }
 
@@ -266,33 +252,73 @@ export const getBillOccurrencesInInterval = (bill: Bill, start: Date, end: Date)
         .map(t => new Date(t));
 };
 
-/**
- * For a given bill + target month/year, returns the first recurring due date
- * that falls in that month, or null if the bill doesn't recur that month.
- */
-export const getRecurringDueDateForMonth = (bill: Bill, monthIndex: number, year: number): Date | null => {
-    const start = new Date(year, monthIndex, 1);
-    const end = new Date(year, monthIndex + 1, 0);
-    const occurrences = getBillOccurrencesInInterval(bill, start, end);
-    return occurrences.length > 0 ? occurrences[0] : null;
+// Returns the start and end dates for a pay period based on user preferences
+export function getPayPeriodInterval(
+    payPeriodStart: string | Date,
+    payPeriodOccurrence: string,
+    offset: number = 0,
+    semiMonthlyDays?: number[]
+): { start: Date; end: Date } {
+    // payPeriodStart: the anchor date (string or Date)
+    // payPeriodOccurrence: 'Monthly', 'Bi-Weekly', 'Weekly', 'Semi-Monthly', etc.
+    // offset: -1 for last, 0 for current, 1 for next
+    // semiMonthlyDays: [1, 15] or similar, for semi-monthly periods
+
+    let anchor = parseDate(payPeriodStart);
+    let start: Date, end: Date;
+
+    if (payPeriodOccurrence === 'Monthly') {
+        // Move anchor by offset months
+        start = new Date(anchor.getFullYear(), anchor.getMonth() + offset, anchor.getDate());
+        end = new Date(start.getFullYear(), start.getMonth() + 1, start.getDate());
+        end.setDate(end.getDate() - 1); // last day of period
+    } else if (payPeriodOccurrence === 'Bi-Weekly') {
+        // Each period is 14 days
+        start = new Date(anchor);
+        start.setDate(start.getDate() + offset * 14);
+        end = new Date(start);
+        end.setDate(start.getDate() + 13);
+    } else if (payPeriodOccurrence === 'Weekly') {
+        start = new Date(anchor);
+        start.setDate(start.getDate() + offset * 7);
+        end = new Date(start);
+        end.setDate(start.getDate() + 6);
+    } else if (payPeriodOccurrence === 'Semi-Monthly' && semiMonthlyDays && semiMonthlyDays.length === 2) {
+        // e.g., [1, 15]
+        const [d1, d2] = semiMonthlyDays;
+        // Figure out which period this offset refers to
+        // offset = 0: current, -1: last, 1: next
+        // We'll assume d1 < d2
+        let baseMonth = anchor.getMonth();
+        let baseYear = anchor.getFullYear();
+        let periodIndex = 0; // 0 for first, 1 for second
+        if (offset !== 0) {
+            // Move by offset periods
+            let totalPeriods = offset;
+            baseMonth += Math.floor(totalPeriods / 2);
+            periodIndex = totalPeriods % 2;
+            if (periodIndex < 0) {
+                periodIndex += 2;
+                baseMonth -= 1;
+            }
+        }
+        if (periodIndex === 0) {
+            start = new Date(baseYear, baseMonth, d1);
+            end = new Date(baseYear, baseMonth, d2 - 1);
+        } else {
+            start = new Date(baseYear, baseMonth, d2);
+            // End is last day of month
+            end = new Date(baseYear, baseMonth + 1, 0);
+        }
+    } else {
+        // Default: just return the anchor date as both start and end
+        start = new Date(anchor);
+        end = new Date(anchor);
+    }
+    // Normalize times
+    start.setHours(0, 0, 0, 0);
+    end.setHours(23, 59, 59, 999);
+    return { start, end };
 };
 
-/**
- * Calculates the next due date for a recurring bill based on its occurrence type.
- * Returns null if there's no next date (e.g. one-time bills).
- */
-export const calculateNextDueDate = (bill: Bill): Date | null => {
-    // Start search window from today (or tomorrow if we want upcoming)
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    
-    // Look ahead 1 year maximum for the next instance
-    const oneYearLater = new Date(tomorrow);
-    oneYearLater.setFullYear(oneYearLater.getFullYear() + 1);
-    
-    const nextOccurrences = getBillOccurrencesInInterval(bill, tomorrow, oneYearLater);
-    return nextOccurrences.length > 0 ? nextOccurrences[0] : null;
-};
 

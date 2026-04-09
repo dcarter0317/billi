@@ -1,9 +1,10 @@
 import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { parseDate, formatDate, calculateNextDueDate } from '../utils/date';
+import { parseDate, formatDate } from '../utils/date';
 import { getCurrencySymbol, formatAmount } from '../utils/currency';
 import { supabase } from '../services/supabase';
 import { useUser } from './UserContext';
+import { waitForInitialization } from '../services/supabase';
 
 export interface Bill {
     id: string;
