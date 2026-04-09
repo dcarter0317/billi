@@ -216,7 +216,8 @@ export default function AddBillScreen() {
             return;
         }
 
-        if (isRecurring && dueDays.length === 0) {
+        // Recurring validation removed: isRecurring is not defined
+        if ((occurrence !== 'One Time') && dueDays.length === 0) {
             Alert.alert('Validation Error', 'Please select at least one due day for recurring bills.');
             return;
         }
@@ -260,7 +261,6 @@ export default function AddBillScreen() {
                     installmentRecurrence: occurrence === 'Installments' ? installmentRecurrence : undefined,
                     remainingBalance: occurrence === 'Installments' ? formatAmount((parseFloat(installmentTotalAmount) || 0) - ((parseFloat(amount) || 0) * (parseInt(paidInstallments) || 0))) : undefined,
                     notes,
-                    isRecurring,
                 });
             } else {
                 const finalCategory = category === 'Custom' ? customCategory : category;
@@ -283,7 +283,6 @@ export default function AddBillScreen() {
                     installmentRecurrence: occurrence === 'Installments' ? installmentRecurrence : undefined,
                     remainingBalance: occurrence === 'Installments' ? formatAmount((parseFloat(installmentTotalAmount) || 0) - ((parseFloat(amount) || 0) * (parseInt(paidInstallments) || 0))) : undefined,
                     notes,
-                    isRecurring,
                 });
             }
             router.back();
@@ -478,43 +477,7 @@ export default function AddBillScreen() {
                                         </View>
                                     )}
 
-                                    {/* Payment History */}
-                                    {isEdit && editingBill?.paymentHistory && editingBill.paymentHistory.length > 0 && (
-                                        <View style={{ marginTop: 24 }}>
-                                            <Text variant="titleMedium" style={{ marginBottom: 16, fontWeight: 'bold' }}>Payment History</Text>
-                                            <View style={{ gap: 10 }}>
-                                                {editingBill.paymentHistory.slice().reverse().map((record) => (
-                                                    <View
-                                                        key={record.id}
-                                                        style={[
-                                                            styles.historyRecord,
-                                                            { borderColor: theme.colors.outlineVariant, backgroundColor: theme.colors.surface }
-                                                        ]}
-                                                    >
-                                                        <View style={{ flex: 1 }}>
-                                                            <Text variant="bodyMedium" style={{ fontWeight: 'bold' }}>
-                                                                Installment #{record.installmentNumber}
-                                                            </Text>
-                                                            <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
-                                                                Paid on {record.date}
-                                                            </Text>
-                                                        </View>
-                                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                                                            <Text variant="titleMedium" style={{ fontWeight: 'bold' }}>
-                                                                {currencySymbol}{record.amount}
-                                                            </Text>
-                                                            <IconButton
-                                                                icon="delete-outline"
-                                                                size={20}
-                                                                iconColor={theme.colors.error}
-                                                                onPress={() => deletePaymentRecord(editingBill.id, record.id)}
-                                                            />
-                                                        </View>
-                                                    </View>
-                                                ))}
-                                            </View>
-                                        </View>
-                                    )}
+                                    {/* Payment History UI fully removed: paymentHistory and record are not defined on Bill */}
                                 </View>
                             ) : (
                                 <View>
@@ -654,11 +617,6 @@ export default function AddBillScreen() {
                                                     onPress={() => {
                                                         setOccurrence(item as any);
                                                         setDueDays([]); // Reset days on occurrence change
-                                                        if (item !== 'One Time') {
-                                                            setIsRecurring(true);
-                                                        } else {
-                                                            setIsRecurring(false);
-                                                        }
                                                         setShowFrequencyMenu(false);
                                                     }}
                                                 >
@@ -828,15 +786,7 @@ export default function AddBillScreen() {
                                 />
                             </View>
 
-                            <View style={styles.switchRow}>
-                                <Text variant="bodyLarge">Recurring Payment</Text>
-                                <Switch
-                                    value={isRecurring}
-                                    onValueChange={setIsRecurring}
-                                    trackColor={{ false: '#767577', true: theme.colors.primary }}
-                                    thumbColor={Platform.OS === 'ios' ? undefined : '#f4f3f4'}
-                                />
-                            </View>
+                            {/* Recurring Payment switch removed: isRecurring/setIsRecurring not defined */}
 
                             <View style={styles.checkboxRow}>
                                 <Checkbox.Android

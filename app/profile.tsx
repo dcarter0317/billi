@@ -51,14 +51,14 @@ export default function ProfileScreen() {
         const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
         if (status !== 'granted') {
             Alert.alert('Permission needed', 'Sorry, we need camera roll permissions to make this work!');
-            return (
-                <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}> 
-                    {/* ...existing code... */}
-                </SafeAreaView>
-            );
+            return;
+        }
+        const result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            allowsEditing: true,
+            aspect: [1, 1],
             quality: 0.5,
         });
-
         if (!result.canceled) {
             setAvatar(result.assets[0].uri);
         }
