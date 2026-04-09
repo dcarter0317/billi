@@ -268,9 +268,27 @@ export function getPayPeriodInterval(
     let start: Date, end: Date;
 
     if (payPeriodOccurrence === 'Monthly') {
-        // Move anchor by offset months
-        start = new Date(anchor.getFullYear(), anchor.getMonth() + offset, anchor.getDate());
-        end = new Date(start.getFullYear(), start.getMonth() + 1, start.getDate());
+        // Helper to get last day of a month
+        function daysInMonth(year: number, month: number) {
+            // month is 0-based
+            return new Date(year, month + 1, 0).getDate();
+        }
+        // Compute target year/month for start
+        const targetMonth = anchor.getMonth() + offset;
+        const targetYear = anchor.getFullYear() + Math.floor(targetMonth / 12);
+        const normalizedMonth = ((targetMonth % 12) + 12) % 12;
+        const startDay = Math.min(anchor.getDate(), daysInMonth(targetYear, normalizedMonth));
+        start = new Date(targetYear, normalizedMonth, startDay);
+
+        // Compute next month boundary for end
+        let nextMonth = normalizedMonth + 1;
+        let nextYear = targetYear;
+        if (nextMonth > 11) {
+            nextMonth = 0;
+            nextYear += 1;
+        }
+        const endDay = Math.min(anchor.getDate(), daysInMonth(nextYear, nextMonth));
+        end = new Date(nextYear, nextMonth, endDay);
         end.setDate(end.getDate() - 1); // last day of period
     } else if (payPeriodOccurrence === 'Bi-Weekly') {
         // Each period is 14 days
