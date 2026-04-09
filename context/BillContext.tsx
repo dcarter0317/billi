@@ -96,7 +96,7 @@ export function BillProvider({ children }: { children: ReactNode }) {
         clearedDate: dbBill.cleared_date ? formatDate(parseDate(dbBill.cleared_date)) : undefined,
         category: dbBill.category,
         order: dbBill.order || 0,
-        occurrence: (dbBill.occurrence as Bill['occurrence']) || 'Every Month',
+        occurrence: (dbBill.occurrence as Bill['occurrence']) ?? undefined,
         dueDays: dbBill.due_days || [],
         totalInstallments: dbBill.total_installments ?? undefined,
         paidInstallments: dbBill.paid_installments ?? undefined,
