@@ -124,7 +124,8 @@ export function validateRecurrence(
     };
   }
 
-  if (occurrence !== 'One Time' && dueDays.length === 0) {
+  // Installments are scheduled from their start date, so they have no due days
+  if (occurrence !== 'One Time' && occurrence !== 'Installments' && dueDays.length === 0) {
     return {
       isValid: false,
       error: 'At least one due day is required for recurring bills',

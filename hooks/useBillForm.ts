@@ -162,8 +162,12 @@ export function useBillForm() {
 
     const finalCategory = category === 'Custom' ? customCategory : category;
 
+    // A new installment bill is first due on its start date. Editing keeps the current due date,
+    // which moves forward as installments are paid.
+    const dueDate = occurrence === 'Installments' && !isEdit ? installmentStartDate : date;
+
     const values: BillFormValues = {
-        title, amount, date, category: finalCategory, isPaid, isCleared, occurrence, dueDays, notes,
+        title, amount, date: dueDate, category: finalCategory, isPaid, isCleared, occurrence, dueDays, notes,
         totalInstallments, paidInstallments, installmentTotalAmount, installmentStartDate,
         installmentEndDate, installmentRecurrence,
     };
@@ -192,7 +196,7 @@ export function useBillForm() {
         const validation = validateBillForm({
             title,
             amount,
-            dueDate: date,
+            dueDate,
             category: finalCategory,
             occurrence,
             dueDays,
