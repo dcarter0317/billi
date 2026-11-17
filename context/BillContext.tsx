@@ -1,9 +1,10 @@
 import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { parseDate, formatDate, calculateNextDueDate } from '../utils/date';
+import { parseDate, formatDate } from '../utils/date';
 import { getCurrencySymbol, formatAmount } from '../utils/currency';
 import { supabase } from '../services/supabase';
 import { useUser } from './UserContext';
+import { waitForInitialization } from '../services/supabase';
 
 export interface Bill {
     id: string;
@@ -95,7 +96,7 @@ export function BillProvider({ children }: { children: ReactNode }) {
         clearedDate: dbBill.cleared_date ? formatDate(parseDate(dbBill.cleared_date)) : undefined,
         category: dbBill.category,
         order: dbBill.order || 0,
-        occurrence: (dbBill.occurrence as Bill['occurrence']) || 'Every Month',
+        occurrence: (dbBill.occurrence as Bill['occurrence']) ?? undefined,
         dueDays: dbBill.due_days || [],
         totalInstallments: dbBill.total_installments ?? undefined,
         paidInstallments: dbBill.paid_installments ?? undefined,

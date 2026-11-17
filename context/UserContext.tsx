@@ -1,6 +1,7 @@
 import React, { createContext, useContext, ReactNode, useEffect, useState } from 'react';
 import { useUser as useClerkUser, useSession, useAuth } from '@clerk/clerk-expo';
 import { setSupabaseTokenProvider, supabase } from '../services/supabase';
+import { waitForInitialization } from '../services/supabase';
 
 interface UserProfile {
     id: string;

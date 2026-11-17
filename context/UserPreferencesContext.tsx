@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, ReactNode, useEffect } from
 import { useColorScheme } from 'react-native';
 import { getItemAsync, setItemAsync } from 'expo-secure-store';
 import * as LocalAuthentication from 'expo-local-authentication';
-import { supabase } from '../services/supabase';
+import { supabase, waitForInitialization } from '../services/supabase';
 import { useUser } from './UserContext';
 
 interface UserPreferences {

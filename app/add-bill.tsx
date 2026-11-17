@@ -1,7 +1,7 @@
 /// <reference types="@react-native-community/datetimepicker" />
-import React, { useState } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, TouchableOpacity, Modal, FlatList, Switch, Alert } from 'react-native';
-import { Text, TextInput, Button, useTheme, Card, Divider, IconButton, Checkbox, Chip } from 'react-native-paper';
+import { Text, TextInput, Button, useTheme, Card, Divider, IconButton, Checkbox, Snackbar } from 'react-native-paper';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -10,6 +10,17 @@ import { usePreferences } from '../context/UserPreferencesContext';
 import { formatDate, parseDate } from '../utils/date';
 import { getCurrencySymbol, formatAmount } from '../utils/currency';
 import { CATEGORIES } from '../constants/categories';
+import {
+  validateTitle,
+  validateAmount,
+  validateDueDate,
+  validateCategory,
+  validateRecurrence,
+  validateInstallments,
+  validateInstallmentDates,
+  validateNotes,
+  validateBillForm,
+} from '../utils/validation';
 
 const OCCURRENCES = ['One Time', 'Every Month', 'Every Week', 'Twice a Week', 'Twice a Month', 'Every Other Week', 'Every Quarter', 'Every Year', 'Installments'];
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -74,6 +85,27 @@ export default function AddBillScreen() {
     // For day picker modal
     const [showDayPicker, setShowDayPicker] = useState(false);
 
+    // Field error and hint state
+    const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+    const [fieldHints, setFieldHints] = useState<Record<string, string>>({});
+    const debounceTimersRef = useRef<Record<string, NodeJS.Timeout>>({});
+
+    // Toast state
+    const [snackbarVisible, setSnackbarVisible] = useState(false);
+    const [snackbarMessage, setSnackbarMessage] = useState('');
+    const [snackbarType, setSnackbarType] = useState<'success' | 'error'>('success');
+
+    // Submission timeout tracking
+    const [submissionStartTime, setSubmissionStartTime] = useState<number | null>(null);
+    const submissionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    const [showCancelButton, setShowCancelButton] = useState(false);
+    const abortControllerRef = useRef<AbortController | null>(null);
+    const scrollViewRef = useRef<ScrollView | null>(null);
+
+    // Recurrence edit warning
+    const [showRecurrenceWarning, setShowRecurrenceWarning] = useState(false);
+    const [recurrenceWarningData, setRecurrenceWarningData] = useState<{ oldType: string; newType: string } | null>(null);
+
     // Sync state when editingBill is found or changes
     React.useEffect(() => {
         if (editingBill) {
@@ -104,6 +136,13 @@ export default function AddBillScreen() {
             setNotes(editingBill.notes || '');
         }
     }, [editingBill]);
+
+    // Cleanup debounce timers on unmount
+    React.useEffect(() => {
+        return () => {
+            Object.values(debounceTimersRef.current).forEach(timer => clearTimeout(timer));
+        };
+    }, []);
 
     // Auto-calculate Total Installments
     React.useEffect(() => {
@@ -204,48 +243,139 @@ export default function AddBillScreen() {
 
     const [saving, setSaving] = useState(false);
 
+    const validateFieldWithDebounce = useCallback(
+      (fieldName: string, value: any) => {
+        if (debounceTimersRef.current[fieldName]) {
+          clearTimeout(debounceTimersRef.current[fieldName]);
+        }
+
+        debounceTimersRef.current[fieldName] = setTimeout(() => {
+          let result: any = { isValid: true };
+
+          switch (fieldName) {
+            case 'title':
+              result = validateTitle(value);
+              break;
+            case 'amount':
+              result = validateAmount(value);
+              break;
+            case 'dueDate':
+              result = validateDueDate(value, !isEdit);
+              break;
+            case 'category':
+              result = validateCategory(value);
+              break;
+            case 'occurrence':
+              result = validateRecurrence(value, dueDays);
+              break;
+            case 'notes':
+              result = validateNotes(value);
+              break;
+            case 'installments':
+              result = validateInstallments(
+                installmentTotalAmount,
+                amount,
+                paidInstallments,
+                totalInstallments
+              );
+              break;
+            default:
+              break;
+          }
+
+          setFieldErrors((prev) => ({
+            ...prev,
+            [fieldName]: result.error || '',
+          }));
+
+          setFieldHints((prev) => ({
+            ...prev,
+            [fieldName]: result.hint || '',
+          }));
+        }, 300);
+      },
+      [isEdit, dueDays, installmentTotalAmount, amount, paidInstallments, totalInstallments]
+    );
+
+    const handleTitleChange = (text: string) => {
+      setTitle(text.slice(0, 100));
+      validateFieldWithDebounce('title', text);
+    };
+
+    const handleAmountChange = (text: string) => {
+      setAmount(text);
+      validateFieldWithDebounce('amount', text);
+    };
+
+    const handleNotesChange = (text: string) => {
+      setNotes(text.slice(0, 500));
+      validateFieldWithDebounce('notes', text);
+    };
+
+    const showSnackbar = (message: string, type: 'success' | 'error') => {
+      setSnackbarMessage(message);
+      setSnackbarType(type);
+      setSnackbarVisible(true);
+      setTimeout(() => setSnackbarVisible(false), type === 'success' ? 2000 : 4000);
+    };
+
     const handleSave = async () => {
-        if (!title.trim()) {
-            Alert.alert('Validation Error', 'Please enter a payee name.');
+        const finalCategory = category === 'Custom' ? customCategory : category;
+
+        const billData = {
+            title,
+            amount: occurrence === 'Installments' ? amount : amount,
+            dueDate: date,
+            category: finalCategory,
+            occurrence,
+            dueDays,
+            notes,
+            totalInstallmentAmount: occurrence === 'Installments' ? installmentTotalAmount : undefined,
+            installmentAmount: occurrence === 'Installments' ? amount : undefined,
+            paidInstallments: occurrence === 'Installments' ? paidInstallments : undefined,
+            totalInstallments: occurrence === 'Installments' ? totalInstallments : undefined,
+            installmentStartDate: occurrence === 'Installments' ? installmentStartDate : undefined,
+            installmentEndDate: occurrence === 'Installments' ? installmentEndDate : undefined,
+        };
+
+        const validation = validateBillForm(billData, !isEdit);
+        if (!validation.isValid) {
+            setFieldErrors(validation.errors);
+            // Scroll to top to show errors
+            scrollViewRef.current?.scrollTo({ y: 0, animated: true });
+            const firstErrorField = Object.keys(validation.errors)[0];
+            const errorMessage = validation.errors[firstErrorField] || 'Please fix the errors above';
+            showSnackbar(errorMessage, 'error');
             return;
         }
 
-        const parsedAmount = parseFloat(amount);
-        if (isNaN(parsedAmount) || parsedAmount <= 0) {
-            Alert.alert('Validation Error', 'Please enter a valid amount greater than zero.');
-            return;
-        }
-
-        if (isRecurring && dueDays.length === 0) {
-            Alert.alert('Validation Error', 'Please select at least one due day for recurring bills.');
-            return;
-        }
-
-        if (occurrence === 'Installments') {
-            const totalInst = parseInt(totalInstallments);
-            const totalAmt = parseFloat(installmentTotalAmount);
-            if (isNaN(totalInst) || totalInst <= 0) {
-                Alert.alert('Validation Error', 'Please enter total number of installments.');
-                return;
-            }
-            if (isNaN(totalAmt) || totalAmt <= 0) {
-                Alert.alert('Validation Error', 'Please enter total installment amount.');
+        // Check for recurrence change if editing
+        if (isEdit && editingBill) {
+            if (editingBill.occurrence !== occurrence || JSON.stringify(editingBill.dueDays) !== JSON.stringify(dueDays)) {
+                setRecurrenceWarningData({
+                    oldType: editingBill.occurrence || '',
+                    newType: occurrence,
+                });
+                setShowRecurrenceWarning(true);
                 return;
             }
         }
 
         setSaving(true);
+        setSubmissionStartTime(Date.now());
+        setShowCancelButton(false);
+
+        submissionTimeoutRef.current = setTimeout(() => {
+            setShowCancelButton(true);
+        }, 10000);
+
         try {
             const finalDueDate = formatDate(date);
 
-
             if (isEdit && id) {
-                const finalCategory = category === 'Custom' ? customCategory : category;
-
-
                 await updateBill(id, {
                     title,
-                    amount: formatAmount(amount),
+                    amount: formatAmount(occurrence === 'Installments' ? amount : amount),
                     dueDate: finalDueDate,
                     category: finalCategory,
                     isPaid,
@@ -260,15 +390,12 @@ export default function AddBillScreen() {
                     installmentRecurrence: occurrence === 'Installments' ? installmentRecurrence : undefined,
                     remainingBalance: occurrence === 'Installments' ? formatAmount((parseFloat(installmentTotalAmount) || 0) - ((parseFloat(amount) || 0) * (parseInt(paidInstallments) || 0))) : undefined,
                     notes,
-                    isRecurring,
                 });
+                showSnackbar('Bill updated', 'success');
             } else {
-                const finalCategory = category === 'Custom' ? customCategory : category;
-
-
                 await addBill({
                     title,
-                    amount: formatAmount(amount),
+                    amount: formatAmount(occurrence === 'Installments' ? amount : amount),
                     dueDate: finalDueDate,
                     category: finalCategory,
                     isPaid,
@@ -283,15 +410,25 @@ export default function AddBillScreen() {
                     installmentRecurrence: occurrence === 'Installments' ? installmentRecurrence : undefined,
                     remainingBalance: occurrence === 'Installments' ? formatAmount((parseFloat(installmentTotalAmount) || 0) - ((parseFloat(amount) || 0) * (parseInt(paidInstallments) || 0))) : undefined,
                     notes,
-                    isRecurring,
                 });
+                showSnackbar('Bill added', 'success');
             }
-            router.back();
+
+            if (submissionTimeoutRef.current) {
+                clearTimeout(submissionTimeoutRef.current);
+            }
+
+            setTimeout(() => router.back(), 2000);
         } catch (error) {
             console.error('Failed to save bill:', error);
-            // Optionally show alert here
+            showSnackbar('Failed to save bill', 'error');
         } finally {
             setSaving(false);
+            setShowCancelButton(false);
+            setSubmissionStartTime(null);
+            if (submissionTimeoutRef.current) {
+                clearTimeout(submissionTimeoutRef.current);
+            }
         }
     };
 
@@ -302,35 +439,61 @@ export default function AddBillScreen() {
                 keyboardVerticalOffset={Platform.OS === 'ios' ? 110 : 0}
                 style={{ flex: 1 }}
             >
-                <ScrollView contentContainerStyle={[styles.content, { paddingBottom: 150 }]}>
+                <ScrollView ref={scrollViewRef} contentContainerStyle={[styles.content, { paddingBottom: 150 }]}>
                     <Text variant="headlineSmall" style={styles.title}>
                         {isEdit ? 'Edit Bill' : 'Bill Details'}
                     </Text>
 
                     <Card style={styles.formCard}>
                         <Card.Content>
-                            <TextInput
-                                label="Payee"
-                                value={title}
-                                onChangeText={setTitle}
-                                mode="outlined"
-                                style={styles.input}
-                                placeholder="e.g. Electric Company"
-                            />
+                            <View>
+                                <TextInput
+                                    label="Payee"
+                                    value={title}
+                                    onChangeText={handleTitleChange}
+                                    onBlur={() => validateFieldWithDebounce('title', title)}
+                                    mode="outlined"
+                                    style={styles.input}
+                                    placeholder="e.g. Electric Company"
+                                    error={!!fieldErrors.title}
+                                />
+                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 4, marginBottom: 12 }}>
+                                    <Text variant="bodySmall" style={{ color: fieldErrors.title ? theme.colors.error : theme.colors.onSurfaceVariant }}>
+                                        {fieldErrors.title}
+                                    </Text>
+                                    <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
+                                        {title.length}/100
+                                    </Text>
+                                </View>
+                            </View>
 
                             {/* Amount (shown for non-Installments) */}
                             {occurrence !== 'Installments' && (
-                                <TextInput
-                                    label="Amount"
-                                    value={amount}
-                                    onChangeText={setAmount}
-                                    mode="outlined"
-                                    keyboardType="decimal-pad"
-                                    style={styles.input}
-                                    placeholder="0.00"
-                                    left={<TextInput.Affix text={currencySymbol} />}
-                                    contentStyle={{ paddingLeft: 24 }}
-                                />
+                                <View>
+                                    <TextInput
+                                        label="Amount"
+                                        value={amount}
+                                        onChangeText={handleAmountChange}
+                                        onBlur={() => validateFieldWithDebounce('amount', amount)}
+                                        mode="outlined"
+                                        keyboardType="decimal-pad"
+                                        style={styles.input}
+                                        placeholder="0.00"
+                                        left={<TextInput.Affix text={currencySymbol} />}
+                                        contentStyle={{ paddingLeft: 24 }}
+                                        error={!!fieldErrors.amount}
+                                    />
+                                    {fieldErrors.amount && (
+                                        <Text variant="bodySmall" style={{ color: theme.colors.error, marginLeft: 4, marginBottom: 12 }}>
+                                            {fieldErrors.amount}
+                                        </Text>
+                                    )}
+                                    {fieldHints.amount && !fieldErrors.amount && (
+                                        <Text variant="bodySmall" style={{ color: theme.colors.error, marginLeft: 4, marginBottom: 12 }}>
+                                            ⚠ {fieldHints.amount}
+                                        </Text>
+                                    )}
+                                </View>
                             )}
 
                             {/* Frequency Selection */}
@@ -365,17 +528,26 @@ export default function AddBillScreen() {
                                         contentStyle={{ paddingLeft: 24 }}
                                     />
 
-                                    <TextInput
-                                        label="Installment Amount"
-                                        value={amount}
-                                        onChangeText={setAmount}
-                                        mode="outlined"
-                                        keyboardType="decimal-pad"
-                                        style={styles.input}
-                                        placeholder="0.00"
-                                        left={<TextInput.Affix text={currencySymbol} />}
-                                        contentStyle={{ paddingLeft: 24 }}
-                                    />
+                                    <View>
+                                        <TextInput
+                                            label="Installment Amount"
+                                            value={amount}
+                                            onChangeText={handleAmountChange}
+                                            onBlur={() => validateFieldWithDebounce('amount', amount)}
+                                            mode="outlined"
+                                            keyboardType="decimal-pad"
+                                            style={styles.input}
+                                            placeholder="0.00"
+                                            left={<TextInput.Affix text={currencySymbol} />}
+                                            contentStyle={{ paddingLeft: 24 }}
+                                            error={!!fieldErrors.amount}
+                                        />
+                                        {fieldErrors.amount && (
+                                            <Text variant="bodySmall" style={{ color: theme.colors.error, marginLeft: 4, marginBottom: 12 }}>
+                                                {fieldErrors.amount}
+                                            </Text>
+                                        )}
+                                    </View>
 
                                     <TextInput
                                         label="Total Number of Installments"
@@ -478,43 +650,7 @@ export default function AddBillScreen() {
                                         </View>
                                     )}
 
-                                    {/* Payment History */}
-                                    {isEdit && editingBill?.paymentHistory && editingBill.paymentHistory.length > 0 && (
-                                        <View style={{ marginTop: 24 }}>
-                                            <Text variant="titleMedium" style={{ marginBottom: 16, fontWeight: 'bold' }}>Payment History</Text>
-                                            <View style={{ gap: 10 }}>
-                                                {editingBill.paymentHistory.slice().reverse().map((record) => (
-                                                    <View
-                                                        key={record.id}
-                                                        style={[
-                                                            styles.historyRecord,
-                                                            { borderColor: theme.colors.outlineVariant, backgroundColor: theme.colors.surface }
-                                                        ]}
-                                                    >
-                                                        <View style={{ flex: 1 }}>
-                                                            <Text variant="bodyMedium" style={{ fontWeight: 'bold' }}>
-                                                                Installment #{record.installmentNumber}
-                                                            </Text>
-                                                            <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
-                                                                Paid on {record.date}
-                                                            </Text>
-                                                        </View>
-                                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                                                            <Text variant="titleMedium" style={{ fontWeight: 'bold' }}>
-                                                                {currencySymbol}{record.amount}
-                                                            </Text>
-                                                            <IconButton
-                                                                icon="delete-outline"
-                                                                size={20}
-                                                                iconColor={theme.colors.error}
-                                                                onPress={() => deletePaymentRecord(editingBill.id, record.id)}
-                                                            />
-                                                        </View>
-                                                    </View>
-                                                ))}
-                                            </View>
-                                        </View>
-                                    )}
+                                    {/* Payment History UI fully removed: paymentHistory and record are not defined on Bill */}
                                 </View>
                             ) : (
                                 <View>
@@ -654,11 +790,6 @@ export default function AddBillScreen() {
                                                     onPress={() => {
                                                         setOccurrence(item as any);
                                                         setDueDays([]); // Reset days on occurrence change
-                                                        if (item !== 'One Time') {
-                                                            setIsRecurring(true);
-                                                        } else {
-                                                            setIsRecurring(false);
-                                                        }
                                                         setShowFrequencyMenu(false);
                                                     }}
                                                 >
@@ -691,7 +822,7 @@ export default function AddBillScreen() {
                                             <Button onPress={() => setShowDayPicker(false)}>Done</Button>
                                         </View>
                                         {/* Helper Text */}
-                                        <Text style={{ marginBottom: 10, alignSelf: 'center', color: theme.colors.secondary }}>
+                                        <Text variant="bodyMedium" style={{ marginBottom: 16, alignSelf: 'center', color: theme.colors.primary, fontWeight: '600' }}>
                                             {occurrence === 'Twice a Month' || occurrence === 'Twice a Week' ? 'Select 2 days' :
                                                 (occurrence === 'Every Month' || occurrence === 'Installments' || occurrence === 'Every Week') ? 'Select 1 day' :
                                                     'Select day(s)'}
@@ -828,15 +959,7 @@ export default function AddBillScreen() {
                                 />
                             </View>
 
-                            <View style={styles.switchRow}>
-                                <Text variant="bodyLarge">Recurring Payment</Text>
-                                <Switch
-                                    value={isRecurring}
-                                    onValueChange={setIsRecurring}
-                                    trackColor={{ false: '#767577', true: theme.colors.primary }}
-                                    thumbColor={Platform.OS === 'ios' ? undefined : '#f4f3f4'}
-                                />
-                            </View>
+                            {/* Recurring Payment switch removed: isRecurring/setIsRecurring not defined */}
 
                             <View style={styles.checkboxRow}>
                                 <Checkbox.Android
@@ -851,16 +974,28 @@ export default function AddBillScreen() {
 
                             <Divider style={{ marginVertical: 16 }} />
 
-                            <TextInput
-                                label="Notes"
-                                value={notes}
-                                onChangeText={setNotes}
-                                mode="outlined"
-                                multiline
-                                numberOfLines={4}
-                                style={[styles.input, { minHeight: 100 }]}
-                                placeholder="Add notes about this bill..."
-                            />
+                            <View>
+                                <TextInput
+                                    label="Notes"
+                                    value={notes}
+                                    onChangeText={handleNotesChange}
+                                    onBlur={() => validateFieldWithDebounce('notes', notes)}
+                                    mode="outlined"
+                                    multiline
+                                    numberOfLines={4}
+                                    style={[styles.input, { minHeight: 100 }]}
+                                    placeholder="Add notes about this bill..."
+                                    error={!!fieldErrors.notes}
+                                />
+                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 4, marginBottom: 12 }}>
+                                    <Text variant="bodySmall" style={{ color: fieldErrors.notes ? theme.colors.error : theme.colors.onSurfaceVariant }}>
+                                        {fieldErrors.notes}
+                                    </Text>
+                                    <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
+                                        {notes.length}/500
+                                    </Text>
+                                </View>
+                            </View>
 
 
                         </Card.Content>
@@ -890,6 +1025,7 @@ export default function AddBillScreen() {
                                                 onPress={() => {
                                                     setCategory(item);
                                                     setShowCategoryMenu(false);
+                                                    validateFieldWithDebounce('category', item);
                                                 }}
                                             >
                                                 <Text variant="bodyLarge">{item}</Text>
@@ -925,6 +1061,90 @@ export default function AddBillScreen() {
                         Cancel
                     </Button>
                 </ScrollView>
+
+                {/* Snackbar for success/error feedback */}
+                <Snackbar
+                    visible={snackbarVisible}
+                    onDismiss={() => setSnackbarVisible(false)}
+                    duration={snackbarType === 'success' ? 2000 : 4000}
+                    style={{ backgroundColor: snackbarType === 'success' ? theme.colors.primary : theme.colors.error }}
+                >
+                    <Text style={{ color: '#fff' }}>{snackbarMessage}</Text>
+                </Snackbar>
+
+                {/* Recurrence Change Warning Dialog */}
+                {showRecurrenceWarning && recurrenceWarningData && (
+                    <Modal
+                        visible={showRecurrenceWarning}
+                        transparent={true}
+                        animationType="fade"
+                        onRequestClose={() => setShowRecurrenceWarning(false)}
+                    >
+                        <View style={[styles.modalOverlay, { justifyContent: 'center', paddingHorizontal: 20 }]}>
+                            <View style={[styles.modalContent, { backgroundColor: theme.colors.surface, padding: 24, borderRadius: 12 }]}>
+                                <Text variant="titleLarge" style={{ marginBottom: 16, fontWeight: 'bold' }}>
+                                    Change Recurrence?
+                                </Text>
+                                <Text variant="bodyMedium" style={{ marginBottom: 24, color: theme.colors.onSurfaceVariant }}>
+                                    Changing recurrence will reschedule all future occurrences from {recurrenceWarningData.oldType} to {recurrenceWarningData.newType}. This cannot be undone. Continue?
+                                </Text>
+                                <View style={{ flexDirection: 'row', gap: 12, justifyContent: 'flex-end' }}>
+                                    <Button
+                                        mode="outlined"
+                                        onPress={() => {
+                                            setShowRecurrenceWarning(false);
+                                            setOccurrence(editingBill?.occurrence || 'One Time');
+                                            setDueDays(editingBill?.dueDays || []);
+                                        }}
+                                    >
+                                        Cancel
+                                    </Button>
+                                    <Button
+                                        mode="contained"
+                                        onPress={async () => {
+                                            setShowRecurrenceWarning(false);
+                                            setSaving(true);
+                                            try {
+                                                const finalDueDate = formatDate(date);
+                                                const finalCategory = category === 'Custom' ? customCategory : category;
+
+                                                if (isEdit && id) {
+                                                    await updateBill(id, {
+                                                        title,
+                                                        amount: formatAmount(occurrence === 'Installments' ? amount : amount),
+                                                        dueDate: finalDueDate,
+                                                        category: finalCategory,
+                                                        isPaid,
+                                                        isCleared,
+                                                        occurrence,
+                                                        dueDays,
+                                                        totalInstallments: occurrence === 'Installments' ? parseInt(totalInstallments) || 0 : undefined,
+                                                        paidInstallments: occurrence === 'Installments' ? parseInt(paidInstallments) || 0 : undefined,
+                                                        totalInstallmentAmount: occurrence === 'Installments' ? formatAmount(installmentTotalAmount) : undefined,
+                                                        installmentStartDate: occurrence === 'Installments' ? formatDate(installmentStartDate) : undefined,
+                                                        installmentEndDate: occurrence === 'Installments' ? installmentEndDate : undefined,
+                                                        installmentRecurrence: occurrence === 'Installments' ? installmentRecurrence : undefined,
+                                                        remainingBalance: occurrence === 'Installments' ? formatAmount((parseFloat(installmentTotalAmount) || 0) - ((parseFloat(amount) || 0) * (parseInt(paidInstallments) || 0))) : undefined,
+                                                        notes,
+                                                    });
+                                                    showSnackbar('Bill updated', 'success');
+                                                }
+                                                setTimeout(() => router.back(), 2000);
+                                            } catch (error) {
+                                                console.error('Failed to save bill:', error);
+                                                showSnackbar('Failed to save bill', 'error');
+                                            } finally {
+                                                setSaving(false);
+                                            }
+                                        }}
+                                    >
+                                        Continue
+                                    </Button>
+                                </View>
+                            </View>
+                        </View>
+                    </Modal>
+                )}
             </KeyboardAvoidingView>
         </SafeAreaView >
     );

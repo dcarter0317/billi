@@ -43,3 +43,6 @@ yarn-error.*
 
 # database files
 *.sql
+
+# credentials
+credentials.json
