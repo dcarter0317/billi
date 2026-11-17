@@ -254,7 +254,7 @@ export const getBillOccurrencesInInterval = (bill: Bill, start: Date, end: Date)
 
 // Returns the start and end dates for a pay period based on user preferences
 export function getPayPeriodInterval(
-    payPeriodStart: string | Date,
+    payPeriodStart: string | number | Date,
     payPeriodOccurrence: string,
     offset: number = 0,
     semiMonthlyDays?: number[]
@@ -264,10 +264,11 @@ export function getPayPeriodInterval(
     // offset: -1 for last, 0 for current, 1 for next
     // semiMonthlyDays: [1, 15] or similar, for semi-monthly periods
 
-    let anchor = parseDate(payPeriodStart);
+    const anchor = parseDate(payPeriodStart);
+    const occurrence = payPeriodOccurrence.toLowerCase();
     let start: Date, end: Date;
 
-    if (payPeriodOccurrence === 'Monthly') {
+    if (occurrence === 'monthly') {
         // Helper to get last day of a month
         function daysInMonth(year: number, month: number) {
             // month is 0-based
@@ -290,18 +291,18 @@ export function getPayPeriodInterval(
         const endDay = Math.min(anchor.getDate(), daysInMonth(nextYear, nextMonth));
         end = new Date(nextYear, nextMonth, endDay);
         end.setDate(end.getDate() - 1); // last day of period
-    } else if (payPeriodOccurrence === 'Bi-Weekly') {
+    } else if (occurrence === 'bi-weekly') {
         // Each period is 14 days
         start = new Date(anchor);
         start.setDate(start.getDate() + offset * 14);
         end = new Date(start);
         end.setDate(start.getDate() + 13);
-    } else if (payPeriodOccurrence === 'Weekly') {
+    } else if (occurrence === 'weekly') {
         start = new Date(anchor);
         start.setDate(start.getDate() + offset * 7);
         end = new Date(start);
         end.setDate(start.getDate() + 6);
-    } else if (payPeriodOccurrence === 'Semi-Monthly' && semiMonthlyDays && semiMonthlyDays.length === 2) {
+    } else if (occurrence === 'semi-monthly' && semiMonthlyDays && semiMonthlyDays.length === 2) {
         // e.g., [1, 15]
         const [d1, d2] = semiMonthlyDays;
         // Figure out which period this offset refers to

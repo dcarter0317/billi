@@ -11,7 +11,7 @@ import DraggableFlatList, {
 // Remove unused GHTouchableOpacity
 
 import { useBills, Bill } from '../../context/BillContext';
-import { MONTHS, parseDate, getBillStatusColor, getBillAlertStatus, formatDate, getRecurringDueDateForMonth, getBillOccurrencesInInterval } from '../../utils/date';
+import { MONTHS, parseDate, getBillStatusColor, getBillAlertStatus, formatDate, getBillOccurrencesInInterval } from '../../utils/date';
 import { getCurrencySymbol, formatAmount } from '../../utils/currency';
 import { CATEGORY_ICONS } from '../../constants/categories';
 import { useIsFocused } from '@react-navigation/native';
@@ -176,11 +176,6 @@ export default function BillsScreen() {
                             </View>
                             <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
                                 Due {item.dueDate}
-                                {item.occurrence === 'Installments' && item.paymentHistory && item.paymentHistory.length > 0 && (
-                                    <Text style={{ color: (theme.colors as any).success || theme.colors.primary }}>
-                                        {' • '}Last paid: {item.paymentHistory[item.paymentHistory.length - 1].date}
-                                    </Text>
-                                )}
                             </Text>
                             <View style={[sharedStyles.categoryBadge, { flexDirection: 'row', alignItems: 'center', gap: 6 }]}>
                                 <Text variant="labelSmall" style={sharedStyles.categoryText}>{item.category}</Text>
