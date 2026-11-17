@@ -59,11 +59,6 @@ export default function BillCard({
                     <View>
                         <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
                             Due {bill.dueDate}
-                            {bill.occurrence === 'Installments' && bill.paymentHistory && bill.paymentHistory.length > 0 && (
-                                <Text style={{ color: (theme.colors as any).success || theme.colors.primary }}>
-                                    {' • '}Last paid: {bill.paymentHistory[bill.paymentHistory.length - 1].date}
-                                </Text>
-                            )}
                         </Text>
                         <View style={[styles.categoryBadge, { flexDirection: 'row', alignItems: 'center', gap: 6 }]}>
                             <Text
