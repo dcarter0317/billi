@@ -192,10 +192,11 @@ export function validateInstallmentDates(
   const startObj = parseDate(startFormatted);
   const endObj = parseDate(endDate);
 
-  if (endObj <= startObj) {
+  // A single installment starts and ends on the same day
+  if (endObj < startObj) {
     return {
       isValid: false,
-      error: 'End date must be after start date',
+      error: 'End date cannot be before start date',
     };
   }
 
