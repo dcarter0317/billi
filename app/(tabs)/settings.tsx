@@ -1,11 +1,15 @@
 import React from 'react';
-import { View, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
+import { View, StyleSheet, ScrollView, TouchableOpacity, Alert, Linking } from 'react-native';
 import { Text, List, Switch, useTheme, Divider, Button, Avatar, Menu } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '@clerk/clerk-expo';
 import { usePreferences } from '../../context/UserPreferencesContext';
 import { useUser } from '../../context/UserContext';
 import { useRouter } from 'expo-router';
+import * as WebBrowser from 'expo-web-browser';
+import Constants from 'expo-constants';
+import { ensureNotificationPermission } from '../../services/notifications';
+import { PRIVACY_POLICY_URL, TERMS_URL } from '../../constants/legal';
 import {
     Moon,
     Bell,
@@ -15,6 +19,7 @@ import {
     ChevronRight,
     DollarSign,
     Info,
+    FileText,
     Trash2,
     Lock,
     Sun,
@@ -39,10 +44,21 @@ export default function SettingsScreen() {
     const [reminderMenuVisible, setReminderMenuVisible] = React.useState(false);
     const [isDeleting, setIsDeleting] = React.useState(false);
 
-    const onToggleNotifications = (value: boolean) => {
+    const onToggleNotifications = async (value: boolean) => {
+        if (value && !(await ensureNotificationPermission())) {
+            Alert.alert(
+                "Notifications are off",
+                "Allow notifications for Billi in your device settings to get bill reminders.",
+                [
+                    { text: "Not now", style: "cancel" },
+                    { text: "Open Settings", onPress: () => Linking.openSettings() },
+                ]
+            );
+            return;
+        }
         toggleNotifications();
         if (value) {
-            Alert.alert("Notifications", "You'll now receive bill reminders 1 day before they are due.");
+            Alert.alert("Notifications", "You'll get a reminder before each bill is due and again on the due date.");
         }
     };
 
@@ -227,8 +243,20 @@ export default function SettingsScreen() {
                 <List.Section>
                     <List.Subheader style={styles.subheader}>Security & System</List.Subheader>
                     <List.Item
+                        title="Privacy Policy"
+                        left={props => <View style={styles.iconContainer}><ShieldCheck size={20} color={theme.colors.primary} /></View>}
+                        right={() => <ChevronRight size={20} color={theme.colors.onSurfaceVariant} style={{ marginTop: 12 }} />}
+                        onPress={() => WebBrowser.openBrowserAsync(PRIVACY_POLICY_URL)}
+                    />
+                    <List.Item
+                        title="Terms and Conditions"
+                        left={props => <View style={styles.iconContainer}><FileText size={20} color={theme.colors.primary} /></View>}
+                        right={() => <ChevronRight size={20} color={theme.colors.onSurfaceVariant} style={{ marginTop: 12 }} />}
+                        onPress={() => WebBrowser.openBrowserAsync(TERMS_URL)}
+                    />
+                    <List.Item
                         title="About Billi"
-                        description="Version 1.0.0 (Beta)"
+                        description={`Version ${Constants.expoConfig?.version ?? ''}`}
                         left={props => <View style={styles.iconContainer}><Info size={20} color={theme.colors.primary} /></View>}
                         onPress={() => Alert.alert("About", "Billi is your premium financial companion.")}
                     />

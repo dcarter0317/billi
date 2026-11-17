@@ -15,11 +15,13 @@ import { CLERK_PUBLISHABLE_KEY, tokenCache } from "../services/clerk";
 
 import AuthScreen from "../components/AuthScreen";
 import WelcomeScreen from "../components/WelcomeScreen";
+import { useBillReminders } from "../hooks/useBillReminders";
 
 function RootLayoutContent() {
     const { preferences, isAuthenticated } = usePreferences();
     const { isLoaded: userLoaded, user } = useUser();
     const theme = preferences.isDarkMode ? BilliDarkTheme : BilliLightTheme;
+    useBillReminders();
 
     if (!userLoaded) {
         return (
