@@ -6,6 +6,9 @@ import { useAuth } from '@clerk/clerk-expo';
 import { usePreferences } from '../../context/UserPreferencesContext';
 import { useUser } from '../../context/UserContext';
 import { useRouter } from 'expo-router';
+import * as WebBrowser from 'expo-web-browser';
+import Constants from 'expo-constants';
+import { PRIVACY_POLICY_URL, TERMS_URL } from '../../constants/legal';
 import {
     Moon,
     Bell,
@@ -15,6 +18,7 @@ import {
     ChevronRight,
     DollarSign,
     Info,
+    FileText,
     Trash2,
     Lock,
     Sun,
@@ -227,8 +231,20 @@ export default function SettingsScreen() {
                 <List.Section>
                     <List.Subheader style={styles.subheader}>Security & System</List.Subheader>
                     <List.Item
+                        title="Privacy Policy"
+                        left={props => <View style={styles.iconContainer}><ShieldCheck size={20} color={theme.colors.primary} /></View>}
+                        right={() => <ChevronRight size={20} color={theme.colors.onSurfaceVariant} style={{ marginTop: 12 }} />}
+                        onPress={() => WebBrowser.openBrowserAsync(PRIVACY_POLICY_URL)}
+                    />
+                    <List.Item
+                        title="Terms and Conditions"
+                        left={props => <View style={styles.iconContainer}><FileText size={20} color={theme.colors.primary} /></View>}
+                        right={() => <ChevronRight size={20} color={theme.colors.onSurfaceVariant} style={{ marginTop: 12 }} />}
+                        onPress={() => WebBrowser.openBrowserAsync(TERMS_URL)}
+                    />
+                    <List.Item
                         title="About Billi"
-                        description="Version 1.0.0 (Beta)"
+                        description={`Version ${Constants.expoConfig?.version ?? ''}`}
                         left={props => <View style={styles.iconContainer}><Info size={20} color={theme.colors.primary} /></View>}
                         onPress={() => Alert.alert("About", "Billi is your premium financial companion.")}
                     />
