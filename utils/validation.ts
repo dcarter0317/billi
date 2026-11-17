@@ -124,7 +124,8 @@ export function validateRecurrence(
     };
   }
 
-  if (occurrence !== 'One Time' && dueDays.length === 0) {
+  // Installments are scheduled from their start date, so they have no due days
+  if (occurrence !== 'One Time' && occurrence !== 'Installments' && dueDays.length === 0) {
     return {
       isValid: false,
       error: 'At least one due day is required for recurring bills',
@@ -191,10 +192,11 @@ export function validateInstallmentDates(
   const startObj = parseDate(startFormatted);
   const endObj = parseDate(endDate);
 
-  if (endObj <= startObj) {
+  // A single installment starts and ends on the same day
+  if (endObj < startObj) {
     return {
       isValid: false,
-      error: 'End date must be after start date',
+      error: 'End date cannot be before start date',
     };
   }
 
