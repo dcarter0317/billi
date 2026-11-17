@@ -1,436 +1,39 @@
-/// <reference types="@react-native-community/datetimepicker" />
-import React, { useState, useCallback, useRef } from 'react';
-import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, TouchableOpacity, Modal, FlatList, Switch, Alert } from 'react-native';
-import { Text, TextInput, Button, useTheme, Card, Divider, IconButton, Checkbox, Snackbar } from 'react-native-paper';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import React, { useState } from 'react';
+import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, TouchableOpacity, Switch } from 'react-native';
+import { Text, Button, useTheme, Card, Divider, Checkbox, Snackbar, TextInput } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import DateTimePicker from '@react-native-community/datetimepicker';
-import { useBills, Bill } from '../context/BillContext';
 import { usePreferences } from '../context/UserPreferencesContext';
-import { formatDate, parseDate } from '../utils/date';
-import { getCurrencySymbol, formatAmount } from '../utils/currency';
+import { formatDate } from '../utils/date';
+import { getCurrencySymbol } from '../utils/currency';
 import { CATEGORIES } from '../constants/categories';
-import {
-  validateTitle,
-  validateAmount,
-  validateDueDate,
-  validateCategory,
-  validateRecurrence,
-  validateInstallments,
-  validateInstallmentDates,
-  validateNotes,
-  validateBillForm,
-} from '../utils/validation';
-
-const OCCURRENCES = ['One Time', 'Every Month', 'Every Week', 'Twice a Week', 'Twice a Month', 'Every Other Week', 'Every Quarter', 'Every Year', 'Installments'];
-const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-
-
+import { OCCURRENCES, WEEKDAYS, isWeekly, getOrdinalSuffix } from '../utils/billForm';
+import { useBillForm } from '../hooks/useBillForm';
+import { AmountField } from '../components/bill-form/AmountField';
+import { CountedInput } from '../components/bill-form/CountedInput';
+import { PressableField } from '../components/bill-form/PressableField';
+import { PickerModal } from '../components/bill-form/PickerModal';
+import { DayPickerModal } from '../components/bill-form/DayPickerModal';
+import { DatePickerModal } from '../components/bill-form/DatePickerModal';
+import { InstallmentFields } from '../components/bill-form/InstallmentFields';
+import { RecurrenceWarningModal } from '../components/bill-form/RecurrenceWarningModal';
+import { formStyles } from '../components/bill-form/formStyles';
 
 export default function AddBillScreen() {
     const theme = useTheme();
-    const router = useRouter();
-    const params = useLocalSearchParams();
-    const { addBill, updateBill, bills, deletePaymentRecord } = useBills();
-
-    const getOrdinalSuffix = (day: number) => {
-        if (day > 3 && day < 21) return 'th';
-        switch (day % 10) {
-            case 1: return "st";
-            case 2: return "nd";
-            case 3: return "rd";
-            default: return "th";
-        }
-    };
     const { preferences } = usePreferences();
-
     const currencySymbol = getCurrencySymbol(preferences.currency);
+    const form = useBillForm();
 
-    // Safety check for ID and other params
-    const id = Array.isArray(params.id) ? params.id[0] : params.id;
-    const isEdit = params.isEdit === 'true' && !!id;
-
-    // Find the bill in context if we're editing
-    const editingBill = isEdit ? bills.find(b => b.id === id) : null;
-
-    // Helper for date parsing (MM-DD-YYYY) to Date object
-    const safeParseDate = (dateStr?: string) => dateStr ? parseDate(dateStr) : new Date();
-
-    const [title, setTitle] = useState('');
-    const [amount, setAmount] = useState('');
-    const [date, setDate] = useState(new Date());
-    const [showDatePicker, setShowDatePicker] = useState(false);
-    const [showStartDatePicker, setShowStartDatePicker] = useState(false);
-    const [category, setCategory] = useState('');
-    const [customCategory, setCustomCategory] = useState('');
-    const [showCategoryMenu, setShowCategoryMenu] = useState(false);
-    const [isPaid, setIsPaid] = useState(false);
-    const [isCleared, setIsCleared] = useState(false);
-    const [notes, setNotes] = useState('');
-
-
-    // New State
-    const [occurrence, setOccurrence] = useState<NonNullable<Bill['occurrence']>>('One Time');
-    const [dueDays, setDueDays] = useState<number[]>([]);
-
-    // Installments State
-    const [totalInstallments, setTotalInstallments] = useState('');
-    const [paidInstallments, setPaidInstallments] = useState('0');
-    const [installmentTotalAmount, setInstallmentTotalAmount] = useState('');
-    const [installmentStartDate, setInstallmentStartDate] = useState<Date>(new Date());
-    const [installmentEndDate, setInstallmentEndDate] = useState('');
-    const [installmentRecurrence, setInstallmentRecurrence] = useState<Bill['installmentRecurrence']>('monthly');
-
-    const [showFrequencyMenu, setShowFrequencyMenu] = useState(false);
-    // For day picker modal
+    const [showOccurrencePicker, setShowOccurrencePicker] = useState(false);
+    const [showCategoryPicker, setShowCategoryPicker] = useState(false);
     const [showDayPicker, setShowDayPicker] = useState(false);
+    const [showStartDatePicker, setShowStartDatePicker] = useState(false);
 
-    // Field error and hint state
-    const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
-    const [fieldHints, setFieldHints] = useState<Record<string, string>>({});
-    const debounceTimersRef = useRef<Record<string, NodeJS.Timeout>>({});
-
-    // Toast state
-    const [snackbarVisible, setSnackbarVisible] = useState(false);
-    const [snackbarMessage, setSnackbarMessage] = useState('');
-    const [snackbarType, setSnackbarType] = useState<'success' | 'error'>('success');
-
-    // Submission timeout tracking
-    const [submissionStartTime, setSubmissionStartTime] = useState<number | null>(null);
-    const submissionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-    const [showCancelButton, setShowCancelButton] = useState(false);
-    const abortControllerRef = useRef<AbortController | null>(null);
-    const scrollViewRef = useRef<ScrollView | null>(null);
-
-    // Recurrence edit warning
-    const [showRecurrenceWarning, setShowRecurrenceWarning] = useState(false);
-    const [recurrenceWarningData, setRecurrenceWarningData] = useState<{ oldType: string; newType: string } | null>(null);
-
-    // Sync state when editingBill is found or changes
-    React.useEffect(() => {
-        if (editingBill) {
-            setTitle(editingBill.title || '');
-            setAmount(editingBill.amount || '');
-            setDate(safeParseDate(editingBill.dueDate));
-
-            // Category logic
-            if (editingBill.category && !CATEGORIES.includes(editingBill.category)) {
-                setCategory('Custom');
-                setCustomCategory(editingBill.category);
-            } else {
-                setCategory(editingBill.category || 'Utilities');
-                setCustomCategory('');
-            }
-
-            setIsPaid(editingBill.isPaid || false);
-            setIsCleared(editingBill.isCleared || false);
-            setOccurrence(editingBill.occurrence || 'Every Month');
-            setDueDays(editingBill.dueDays || []);
-
-            if (editingBill.totalInstallments != null) setTotalInstallments(editingBill.totalInstallments.toString());
-            if (editingBill.paidInstallments != null) setPaidInstallments(editingBill.paidInstallments.toString());
-            if (editingBill.totalInstallmentAmount) setInstallmentTotalAmount(editingBill.totalInstallmentAmount);
-            if (editingBill.installmentStartDate) setInstallmentStartDate(safeParseDate(editingBill.installmentStartDate));
-            if (editingBill.installmentEndDate) setInstallmentEndDate(editingBill.installmentEndDate);
-            if (editingBill.installmentRecurrence) setInstallmentRecurrence(editingBill.installmentRecurrence);
-            setNotes(editingBill.notes || '');
-        }
-    }, [editingBill]);
-
-    // Cleanup debounce timers on unmount
-    React.useEffect(() => {
-        return () => {
-            Object.values(debounceTimersRef.current).forEach(timer => clearTimeout(timer));
-        };
-    }, []);
-
-    // Auto-calculate Total Installments
-    React.useEffect(() => {
-        if (occurrence === 'Installments' && installmentTotalAmount && amount) {
-            const total = parseFloat(installmentTotalAmount);
-            const inst = parseFloat(amount);
-            if (total > 0 && inst > 0) {
-                const calculated = Math.ceil(total / inst);
-                setTotalInstallments(calculated.toString());
-            }
-        }
-    }, [installmentTotalAmount, amount, occurrence]);
-
-    const onDateChange = (event: any, selectedDate?: Date) => {
-        if (Platform.OS === 'android') {
-            setShowDatePicker(false);
-        }
-        if (selectedDate) {
-            setDate(selectedDate);
-        }
-    };
-
-    // Helper to calculate next due date based on selected days
-    const calculateNextDueDate = (days: number[], freq: string): Date => {
-        const today = new Date();
-        const currentDay = today.getDay(); // 0-6
-        const currentDate = today.getDate(); // 1-31
-
-        let nextDate = new Date(today);
-
-        if (freq.includes('Week')) {
-            // Find the next day in the list that is today or later
-            // Sort days first
-            const sortedDays = [...days].sort((a, b) => a - b);
-
-            // Find first day >= currentDay
-            const nextDayIndex = sortedDays.find(d => d >= currentDay);
-
-            if (nextDayIndex !== undefined) {
-                // It's later this week (or today)
-                // However, if it is today, we might want to check if it's already "paid" logic? 
-                // For now, let's assume if it is today, it is due today.
-                nextDate.setDate(today.getDate() + (nextDayIndex - currentDay));
-            } else {
-                // It's in the next week. Pick the first day of the list.
-                const firstDay = sortedDays[0];
-                nextDate.setDate(today.getDate() + (7 - currentDay + firstDay));
-            }
-        } else if (freq.includes('Month') || freq === 'Installments' || freq === 'Every Quarter' || freq === 'Every Year') {
-            // Set to the selected day in the current month — don't auto-advance
-            // The bill lifecycle will advance the date when it's paid
-            const sortedDays = [...days].sort((a, b) => a - b);
-            nextDate.setDate(sortedDays[0]);
-        }
-        return nextDate;
-    };
-
-    // Effect to update Date when Due Days change for recurring bills
-    React.useEffect(() => {
-        if (occurrence !== 'Every Month' && occurrence !== 'Installments' && dueDays.length > 0) {
-            // For Every Week, Twice a Week, etc.
-            // Auto update the "Date" state which is the effective due date
-            const next = calculateNextDueDate(dueDays, occurrence);
-            setDate(next);
-        }
-        // For 'Every Month' / 'Installments', we usually let them pick a specific date 
-        // BUT user asked to "change due date option... to day of the week" only for weekly.
-        // Effectively merging them.
-        // Let's apply this logic to Month too for consistency?
-        // "change the due date option when the frequency is set to every week, twice a week and every other week"
-        // So for Monthly, maybe keep it enabling the calendar picker? 
-        // But we have "Day of Month" picker too.
-        // Let's enforce the Day Picker for all recurring to be consistent.
-        if ((occurrence.includes('Month') || occurrence === 'Installments' || occurrence === 'Every Quarter' || occurrence === 'Every Year') && dueDays.length > 0) {
-            const next = calculateNextDueDate(dueDays, occurrence);
-            setDate(next);
-        }
-    }, [dueDays, occurrence]);
-
-    // Installment End Date Calculation
-    React.useEffect(() => {
-        if (occurrence === 'Installments' && installmentStartDate && totalInstallments) {
-            const count = parseInt(totalInstallments);
-            if (count > 0) {
-                const end = new Date(installmentStartDate);
-                if (installmentRecurrence === 'monthly') {
-                    const newMonth = end.getMonth() + (count - 1);
-                    end.setMonth(newMonth);
-                } else if (installmentRecurrence === 'bi-weekly') {
-                    end.setDate(end.getDate() + (count - 1) * 14);
-                }
-                setInstallmentEndDate(formatDate(end));
-            } else {
-                setInstallmentEndDate('');
-            }
-        }
-    }, [installmentStartDate, totalInstallments, installmentRecurrence, occurrence]);
-
-    const [saving, setSaving] = useState(false);
-
-    const validateFieldWithDebounce = useCallback(
-      (fieldName: string, value: any) => {
-        if (debounceTimersRef.current[fieldName]) {
-          clearTimeout(debounceTimersRef.current[fieldName]);
-        }
-
-        debounceTimersRef.current[fieldName] = setTimeout(() => {
-          let result: any = { isValid: true };
-
-          switch (fieldName) {
-            case 'title':
-              result = validateTitle(value);
-              break;
-            case 'amount':
-              result = validateAmount(value);
-              break;
-            case 'dueDate':
-              result = validateDueDate(value, !isEdit);
-              break;
-            case 'category':
-              result = validateCategory(value);
-              break;
-            case 'occurrence':
-              result = validateRecurrence(value, dueDays);
-              break;
-            case 'notes':
-              result = validateNotes(value);
-              break;
-            case 'installments':
-              result = validateInstallments(
-                installmentTotalAmount,
-                amount,
-                paidInstallments,
-                totalInstallments
-              );
-              break;
-            default:
-              break;
-          }
-
-          setFieldErrors((prev) => ({
-            ...prev,
-            [fieldName]: result.error || '',
-          }));
-
-          setFieldHints((prev) => ({
-            ...prev,
-            [fieldName]: result.hint || '',
-          }));
-        }, 300);
-      },
-      [isEdit, dueDays, installmentTotalAmount, amount, paidInstallments, totalInstallments]
-    );
-
-    const handleTitleChange = (text: string) => {
-      setTitle(text.slice(0, 100));
-      validateFieldWithDebounce('title', text);
-    };
-
-    const handleAmountChange = (text: string) => {
-      setAmount(text);
-      validateFieldWithDebounce('amount', text);
-    };
-
-    const handleNotesChange = (text: string) => {
-      setNotes(text.slice(0, 500));
-      validateFieldWithDebounce('notes', text);
-    };
-
-    const showSnackbar = (message: string, type: 'success' | 'error') => {
-      setSnackbarMessage(message);
-      setSnackbarType(type);
-      setSnackbarVisible(true);
-      setTimeout(() => setSnackbarVisible(false), type === 'success' ? 2000 : 4000);
-    };
-
-    const handleSave = async () => {
-        const finalCategory = category === 'Custom' ? customCategory : category;
-
-        const billData = {
-            title,
-            amount: occurrence === 'Installments' ? amount : amount,
-            dueDate: date,
-            category: finalCategory,
-            occurrence,
-            dueDays,
-            notes,
-            totalInstallmentAmount: occurrence === 'Installments' ? installmentTotalAmount : undefined,
-            installmentAmount: occurrence === 'Installments' ? amount : undefined,
-            paidInstallments: occurrence === 'Installments' ? paidInstallments : undefined,
-            totalInstallments: occurrence === 'Installments' ? totalInstallments : undefined,
-            installmentStartDate: occurrence === 'Installments' ? installmentStartDate : undefined,
-            installmentEndDate: occurrence === 'Installments' ? installmentEndDate : undefined,
-        };
-
-        const validation = validateBillForm(billData, !isEdit);
-        if (!validation.isValid) {
-            setFieldErrors(validation.errors);
-            // Scroll to top to show errors
-            scrollViewRef.current?.scrollTo({ y: 0, animated: true });
-            const firstErrorField = Object.keys(validation.errors)[0];
-            const errorMessage = validation.errors[firstErrorField] || 'Please fix the errors above';
-            showSnackbar(errorMessage, 'error');
-            return;
-        }
-
-        // Check for recurrence change if editing
-        if (isEdit && editingBill) {
-            if (editingBill.occurrence !== occurrence || JSON.stringify(editingBill.dueDays) !== JSON.stringify(dueDays)) {
-                setRecurrenceWarningData({
-                    oldType: editingBill.occurrence || '',
-                    newType: occurrence,
-                });
-                setShowRecurrenceWarning(true);
-                return;
-            }
-        }
-
-        setSaving(true);
-        setSubmissionStartTime(Date.now());
-        setShowCancelButton(false);
-
-        submissionTimeoutRef.current = setTimeout(() => {
-            setShowCancelButton(true);
-        }, 10000);
-
-        try {
-            const finalDueDate = formatDate(date);
-
-            if (isEdit && id) {
-                await updateBill(id, {
-                    title,
-                    amount: formatAmount(occurrence === 'Installments' ? amount : amount),
-                    dueDate: finalDueDate,
-                    category: finalCategory,
-                    isPaid,
-                    isCleared,
-                    occurrence,
-                    dueDays,
-                    totalInstallments: occurrence === 'Installments' ? parseInt(totalInstallments) || 0 : undefined,
-                    paidInstallments: occurrence === 'Installments' ? parseInt(paidInstallments) || 0 : undefined,
-                    totalInstallmentAmount: occurrence === 'Installments' ? formatAmount(installmentTotalAmount) : undefined,
-                    installmentStartDate: occurrence === 'Installments' ? formatDate(installmentStartDate) : undefined,
-                    installmentEndDate: occurrence === 'Installments' ? installmentEndDate : undefined,
-                    installmentRecurrence: occurrence === 'Installments' ? installmentRecurrence : undefined,
-                    remainingBalance: occurrence === 'Installments' ? formatAmount((parseFloat(installmentTotalAmount) || 0) - ((parseFloat(amount) || 0) * (parseInt(paidInstallments) || 0))) : undefined,
-                    notes,
-                });
-                showSnackbar('Bill updated', 'success');
-            } else {
-                await addBill({
-                    title,
-                    amount: formatAmount(occurrence === 'Installments' ? amount : amount),
-                    dueDate: finalDueDate,
-                    category: finalCategory,
-                    isPaid,
-                    isCleared,
-                    occurrence,
-                    dueDays,
-                    totalInstallments: occurrence === 'Installments' ? parseInt(totalInstallments) || 0 : undefined,
-                    paidInstallments: occurrence === 'Installments' ? parseInt(paidInstallments) || 0 : 0,
-                    totalInstallmentAmount: occurrence === 'Installments' ? formatAmount(installmentTotalAmount) : undefined,
-                    installmentStartDate: occurrence === 'Installments' ? formatDate(installmentStartDate) : undefined,
-                    installmentEndDate: occurrence === 'Installments' ? installmentEndDate : undefined,
-                    installmentRecurrence: occurrence === 'Installments' ? installmentRecurrence : undefined,
-                    remainingBalance: occurrence === 'Installments' ? formatAmount((parseFloat(installmentTotalAmount) || 0) - ((parseFloat(amount) || 0) * (parseInt(paidInstallments) || 0))) : undefined,
-                    notes,
-                });
-                showSnackbar('Bill added', 'success');
-            }
-
-            if (submissionTimeoutRef.current) {
-                clearTimeout(submissionTimeoutRef.current);
-            }
-
-            setTimeout(() => router.back(), 2000);
-        } catch (error) {
-            console.error('Failed to save bill:', error);
-            showSnackbar('Failed to save bill', 'error');
-        } finally {
-            setSaving(false);
-            setShowCancelButton(false);
-            setSubmissionStartTime(null);
-            if (submissionTimeoutRef.current) {
-                clearTimeout(submissionTimeoutRef.current);
-            }
-        }
-    };
+    const { occurrence, fieldErrors, fieldHints } = form;
+    const weekly = isWeekly(occurrence);
+    const dueDaysLabel = form.dueDays.length > 0
+        ? form.dueDays.map(d => weekly ? WEEKDAYS[d] : d + getOrdinalSuffix(d)).join(', ')
+        : 'Select days';
 
     return (
         <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
@@ -439,248 +42,71 @@ export default function AddBillScreen() {
                 keyboardVerticalOffset={Platform.OS === 'ios' ? 110 : 0}
                 style={{ flex: 1 }}
             >
-                <ScrollView ref={scrollViewRef} contentContainerStyle={[styles.content, { paddingBottom: 150 }]}>
+                <ScrollView ref={form.scrollViewRef} contentContainerStyle={styles.content}>
                     <Text variant="headlineSmall" style={styles.title}>
-                        {isEdit ? 'Edit Bill' : 'Bill Details'}
+                        {form.isEdit ? 'Edit Bill' : 'Bill Details'}
                     </Text>
 
                     <Card style={styles.formCard}>
                         <Card.Content>
-                            <View>
-                                <TextInput
-                                    label="Payee"
-                                    value={title}
-                                    onChangeText={handleTitleChange}
-                                    onBlur={() => validateFieldWithDebounce('title', title)}
-                                    mode="outlined"
-                                    style={styles.input}
-                                    placeholder="e.g. Electric Company"
-                                    error={!!fieldErrors.title}
-                                />
-                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 4, marginBottom: 12 }}>
-                                    <Text variant="bodySmall" style={{ color: fieldErrors.title ? theme.colors.error : theme.colors.onSurfaceVariant }}>
-                                        {fieldErrors.title}
-                                    </Text>
-                                    <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
-                                        {title.length}/100
-                                    </Text>
-                                </View>
-                            </View>
+                            <CountedInput
+                                label="Payee"
+                                value={form.title}
+                                maxLength={100}
+                                onChangeText={form.changeTitle}
+                                onBlur={() => form.validateField('title', form.title)}
+                                placeholder="e.g. Electric Company"
+                                errorText={fieldErrors.title}
+                            />
 
-                            {/* Amount (shown for non-Installments) */}
                             {occurrence !== 'Installments' && (
-                                <View>
-                                    <TextInput
-                                        label="Amount"
-                                        value={amount}
-                                        onChangeText={handleAmountChange}
-                                        onBlur={() => validateFieldWithDebounce('amount', amount)}
-                                        mode="outlined"
-                                        keyboardType="decimal-pad"
-                                        style={styles.input}
-                                        placeholder="0.00"
-                                        left={<TextInput.Affix text={currencySymbol} />}
-                                        contentStyle={{ paddingLeft: 24 }}
-                                        error={!!fieldErrors.amount}
-                                    />
-                                    {fieldErrors.amount && (
-                                        <Text variant="bodySmall" style={{ color: theme.colors.error, marginLeft: 4, marginBottom: 12 }}>
-                                            {fieldErrors.amount}
-                                        </Text>
-                                    )}
-                                    {fieldHints.amount && !fieldErrors.amount && (
-                                        <Text variant="bodySmall" style={{ color: theme.colors.error, marginLeft: 4, marginBottom: 12 }}>
-                                            ⚠ {fieldHints.amount}
-                                        </Text>
-                                    )}
-                                </View>
+                                <AmountField
+                                    label="Amount"
+                                    value={form.amount}
+                                    currencySymbol={currencySymbol}
+                                    onChangeText={form.changeAmount}
+                                    onBlur={() => form.validateField('amount', form.amount)}
+                                    error={fieldErrors.amount}
+                                    hint={fieldHints.amount}
+                                />
                             )}
 
-                            {/* Frequency Selection */}
-                            <TouchableOpacity
-                                onPress={() => setShowFrequencyMenu(true)}
-                                activeOpacity={0.7}
-                            >
-                                <View pointerEvents="none">
-                                    <TextInput
-                                        label="Occurrence"
-                                        value={occurrence}
-                                        mode="outlined"
-                                        style={styles.input}
-                                        editable={false}
-                                        right={<TextInput.Icon icon="repeat" />}
-                                    />
-                                </View>
-                            </TouchableOpacity>
+                            <PressableField label="Occurrence" value={occurrence} icon="repeat" onPress={() => setShowOccurrencePicker(true)} />
 
-                            {/* Conditional Fields based on Occurrence */}
                             {occurrence === 'Installments' ? (
-                                <View>
-                                    <TextInput
-                                        label="Total Installment Amount"
-                                        value={installmentTotalAmount}
-                                        onChangeText={setInstallmentTotalAmount}
-                                        mode="outlined"
-                                        keyboardType="decimal-pad"
-                                        style={styles.input}
-                                        placeholder="0.00"
-                                        left={<TextInput.Affix text={currencySymbol} />}
-                                        contentStyle={{ paddingLeft: 24 }}
-                                    />
-
-                                    <View>
-                                        <TextInput
-                                            label="Installment Amount"
-                                            value={amount}
-                                            onChangeText={handleAmountChange}
-                                            onBlur={() => validateFieldWithDebounce('amount', amount)}
-                                            mode="outlined"
-                                            keyboardType="decimal-pad"
-                                            style={styles.input}
-                                            placeholder="0.00"
-                                            left={<TextInput.Affix text={currencySymbol} />}
-                                            contentStyle={{ paddingLeft: 24 }}
-                                            error={!!fieldErrors.amount}
-                                        />
-                                        {fieldErrors.amount && (
-                                            <Text variant="bodySmall" style={{ color: theme.colors.error, marginLeft: 4, marginBottom: 12 }}>
-                                                {fieldErrors.amount}
-                                            </Text>
-                                        )}
-                                    </View>
-
-                                    <TextInput
-                                        label="Total Number of Installments"
-                                        value={totalInstallments}
-                                        onChangeText={(text) => setTotalInstallments(text.replace(/[^0-9]/g, ''))}
-                                        mode="outlined"
-                                        keyboardType="number-pad"
-                                        style={styles.input}
-                                        placeholder="e.g. 4"
-                                    />
-
-                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                                        <TextInput
-                                            label="Paid Installments"
-                                            value={paidInstallments}
-                                            onChangeText={(text) => setPaidInstallments(text.replace(/[^0-9]/g, ''))}
-                                            mode="outlined"
-                                            keyboardType="number-pad"
-                                            style={[styles.input, { flex: 1 }]}
-                                            placeholder="0"
-                                        />
-                                        <View style={{ flexDirection: 'row', gap: 5 }}>
-                                            <IconButton
-                                                icon="minus"
-                                                mode="contained"
-                                                size={24}
-                                                onPress={() => {
-                                                    const current = parseInt(paidInstallments) || 0;
-                                                    setPaidInstallments(Math.max(0, current - 1).toString());
-                                                }}
-                                            />
-                                            <IconButton
-                                                icon="plus"
-                                                mode="contained"
-                                                size={24}
-                                                onPress={() => {
-                                                    const current = parseInt(paidInstallments) || 0;
-                                                    const total = parseInt(totalInstallments) || Infinity;
-                                                    setPaidInstallments(Math.min(total, current + 1).toString());
-                                                }}
-                                            />
-                                        </View>
-                                    </View>
-
-                                    {/* Installment Recurrence */}
-                                    <View style={{ marginBottom: 16 }}>
-                                        <Text variant="bodyMedium" style={{ marginBottom: 8, color: theme.colors.onSurfaceVariant }}>Installment Recurrence</Text>
-                                        <View style={{ flexDirection: 'row', gap: 10 }}>
-                                            <Button
-                                                mode={installmentRecurrence === 'bi-weekly' ? 'contained' : 'outlined'}
-                                                onPress={() => setInstallmentRecurrence('bi-weekly')}
-                                                style={{ flex: 1 }}
-                                            >
-                                                Bi-Weekly
-                                            </Button>
-                                            <Button
-                                                mode={installmentRecurrence === 'monthly' ? 'contained' : 'outlined'}
-                                                onPress={() => setInstallmentRecurrence('monthly')}
-                                                style={{ flex: 1 }}
-                                            >
-                                                Monthly
-                                            </Button>
-                                        </View>
-                                    </View>
-
-                                    {/* Start Date */}
-                                    <TouchableOpacity
-                                        onPress={() => setShowStartDatePicker(true)}
-                                        activeOpacity={0.7}
-                                    >
-                                        <View pointerEvents="none">
-                                            <TextInput
-                                                label="Start Date"
-                                                value={formatDate(installmentStartDate)}
-                                                mode="outlined"
-                                                style={styles.input}
-                                                editable={false}
-                                                right={<TextInput.Icon icon="calendar" />}
-                                            />
-                                        </View>
-                                    </TouchableOpacity>
-
-                                    {/* Calculated End Date */}
-                                    <TextInput
-                                        label="End Date (Calculated)"
-                                        value={installmentEndDate}
-                                        mode="outlined"
-                                        style={[styles.input, { backgroundColor: theme.colors.surfaceVariant }]}
-                                        editable={false}
-                                        right={<TextInput.Icon icon="calendar-lock" />}
-                                    />
-
-                                    {/* Remaining Balance */}
-                                    {installmentTotalAmount && amount && (
-                                        <View style={[styles.infoBox, { backgroundColor: theme.colors.surfaceVariant, borderColor: theme.colors.outlineVariant }]}>
-                                            <Text variant="labelLarge" style={{ color: theme.dark ? '#FFFFFF' : theme.colors.onSurfaceVariant }}>Remaining Balance</Text>
-                                            <Text variant="headlineSmall" style={{ color: theme.dark ? '#FFFFFF' : theme.colors.primary, fontWeight: 'bold' }}>
-                                                {currencySymbol}{formatAmount((parseFloat(installmentTotalAmount) || 0) - ((parseFloat(amount) || 0) * (parseInt(paidInstallments) || 0)))}
-                                            </Text>
-                                        </View>
-                                    )}
-
-                                    {/* Payment History UI fully removed: paymentHistory and record are not defined on Bill */}
-                                </View>
+                                <InstallmentFields
+                                    currencySymbol={currencySymbol}
+                                    totalAmount={form.installmentTotalAmount}
+                                    onTotalAmountChange={form.setInstallmentTotalAmount}
+                                    amount={form.amount}
+                                    onAmountChange={form.changeAmount}
+                                    onAmountBlur={() => form.validateField('amount', form.amount)}
+                                    amountError={fieldErrors.amount}
+                                    amountHint={fieldHints.amount}
+                                    totalInstallments={form.totalInstallments}
+                                    onTotalInstallmentsChange={form.setTotalInstallments}
+                                    paidInstallments={form.paidInstallments}
+                                    onPaidInstallmentsChange={form.setPaidInstallments}
+                                    recurrence={form.installmentRecurrence}
+                                    onRecurrenceChange={form.setInstallmentRecurrence}
+                                    startDate={form.installmentStartDate}
+                                    onPressStartDate={() => setShowStartDatePicker(true)}
+                                    endDate={form.installmentEndDate}
+                                />
                             ) : (
                                 <View>
-
-                                    {/* Due specifics based on Frequency */}
-                                    <TouchableOpacity
+                                    <PressableField
+                                        label={weekly ? 'Repeats On' : 'Due Day'}
+                                        value={dueDaysLabel}
+                                        icon="calendar-text"
                                         onPress={() => setShowDayPicker(true)}
-                                        activeOpacity={0.7}
-                                    >
-                                        <View pointerEvents="none">
-                                            <TextInput
-                                                label={occurrence.includes('Week') ? "Repeats On" : "Due Day"}
-                                                value={dueDays.length > 0
-                                                    ? dueDays.map(d => occurrence.includes('Week') ? WEEKDAYS[d] : d + getOrdinalSuffix(d)).join(', ')
-                                                    : 'Select days'}
-                                                mode="outlined"
-                                                style={styles.input}
-                                                editable={false}
-                                                right={<TextInput.Icon icon="calendar-text" />}
-                                            />
-                                        </View>
-                                    </TouchableOpacity>
-
-                                    {/* Calculated Next Due Date (Read Only) - Only show for 'Every Month' */}
+                                    />
                                     {occurrence === 'Every Month' && (
                                         <TextInput
                                             label="Next Due Date"
-                                            value={formatDate(date)}
+                                            value={formatDate(form.date)}
                                             mode="outlined"
-                                            style={[styles.input, { backgroundColor: theme.colors.surfaceVariant }]}
+                                            style={[formStyles.input, { backgroundColor: theme.colors.surfaceVariant }]}
                                             editable={false}
                                             right={<TextInput.Icon icon="calendar-lock" />}
                                         />
@@ -688,261 +114,15 @@ export default function AddBillScreen() {
                                 </View>
                             )}
 
-                            {/* showDatePicker Modal (for regular bills) */}
-                            {showDatePicker && (
-                                Platform.OS === 'ios' ? (
-                                    <Modal
-                                        transparent={true}
-                                        animationType="slide"
-                                        visible={showDatePicker}
-                                        onRequestClose={() => setShowDatePicker(false)}
-                                    >
-                                        <View style={styles.modalOverlay}>
-                                            <View style={[styles.modalContent, { backgroundColor: theme.colors.surface, height: 'auto', paddingBottom: 40 }]}>
-                                                <View style={styles.modalHeader}>
-                                                    <Text variant="titleLarge" style={{ fontWeight: 'bold' }}>Select Due Date</Text>
-                                                    <Button onPress={() => setShowDatePicker(false)}>Done</Button>
-                                                </View>
-                                                <Divider />
-                                                <DateTimePicker
-                                                    value={date}
-                                                    mode="date"
-                                                    display="spinner"
-                                                    onChange={onDateChange}
-                                                    textColor={theme.colors.onSurface}
-                                                />
-                                            </View>
-                                        </View>
-                                    </Modal>
-                                ) : (
-                                    <DateTimePicker
-                                        value={date}
-                                        mode="date"
-                                        display="default"
-                                        onChange={onDateChange}
-                                    />
-                                )
-                            )}
+                            <PressableField label="Category" value={form.category} icon="chevron-down" onPress={() => setShowCategoryPicker(true)} />
 
-                            {showStartDatePicker && (
-                                Platform.OS === 'ios' ? (
-                                    <Modal
-                                        transparent={true}
-                                        animationType="slide"
-                                        visible={showStartDatePicker}
-                                        onRequestClose={() => setShowStartDatePicker(false)}
-                                    >
-                                        <View style={styles.modalOverlay}>
-                                            <View style={[styles.modalContent, { backgroundColor: theme.colors.surface, height: 'auto', paddingBottom: 40 }]}>
-                                                <View style={styles.modalHeader}>
-                                                    <Text variant="titleLarge" style={{ fontWeight: 'bold' }}>Select Start Date</Text>
-                                                    <Button onPress={() => setShowStartDatePicker(false)}>Done</Button>
-                                                </View>
-                                                <Divider />
-                                                <DateTimePicker
-                                                    value={installmentStartDate}
-                                                    mode="date"
-                                                    display="spinner"
-                                                    onChange={(event, selectedDate) => {
-                                                        if (selectedDate) setInstallmentStartDate(selectedDate);
-                                                    }}
-                                                    textColor={theme.colors.onSurface}
-                                                />
-                                            </View>
-                                        </View>
-                                    </Modal>
-                                ) : (
-                                    <DateTimePicker
-                                        value={installmentStartDate}
-                                        mode="date"
-                                        display="default"
-                                        onChange={(event, selectedDate) => {
-                                            setShowStartDatePicker(false);
-                                            if (selectedDate) setInstallmentStartDate(selectedDate);
-                                        }}
-                                    />
-                                )
-                            )}
-
-                            {/* Frequency Picker Modal */}
-                            <Modal
-                                visible={showFrequencyMenu}
-                                transparent={true}
-                                animationType="slide"
-                                onRequestClose={() => setShowFrequencyMenu(false)}
-                            >
-                                <View style={styles.modalOverlay}>
-                                    <View style={[styles.modalContent, { backgroundColor: theme.colors.surface }]}>
-                                        <View style={styles.modalHeader}>
-                                            <Text variant="titleLarge" style={{ fontWeight: 'bold' }}>Select Occurrence</Text>
-                                            <IconButton
-                                                icon="close"
-                                                onPress={() => setShowFrequencyMenu(false)}
-                                            />
-                                        </View>
-                                        <Divider />
-                                        <FlatList
-                                            data={OCCURRENCES}
-                                            keyExtractor={(item) => item}
-                                            renderItem={({ item }) => (
-                                                <TouchableOpacity
-                                                    style={styles.categoryItem}
-                                                    onPress={() => {
-                                                        setOccurrence(item as any);
-                                                        setDueDays([]); // Reset days on occurrence change
-                                                        setShowFrequencyMenu(false);
-                                                    }}
-                                                >
-                                                    <Text variant="bodyLarge">{item}</Text>
-                                                    {occurrence === item && (
-                                                        <IconButton icon="check" iconColor={theme.colors.primary} />
-                                                    )}
-                                                </TouchableOpacity>
-                                            )}
-                                            ItemSeparatorComponent={() => <Divider />}
-                                            contentContainerStyle={{ paddingBottom: 40 }}
-                                        />
-                                    </View>
-                                </View>
-                            </Modal>
-
-                            {/* Day Picker Modal */}
-                            <Modal
-                                visible={showDayPicker}
-                                transparent={true}
-                                animationType="slide"
-                                onRequestClose={() => setShowDayPicker(false)}
-                            >
-                                <View style={styles.modalOverlay}>
-                                    <View style={[styles.modalContent, { backgroundColor: theme.colors.surface, height: '80%' }]}>
-                                        <View style={styles.modalHeader}>
-                                            <Text variant="titleLarge" style={{ fontWeight: 'bold' }}>
-                                                Select {occurrence.includes('Week') ? 'Day of Week' : 'Day of Month'}
-                                            </Text>
-                                            <Button onPress={() => setShowDayPicker(false)}>Done</Button>
-                                        </View>
-                                        {/* Helper Text */}
-                                        <Text variant="bodyMedium" style={{ marginBottom: 16, alignSelf: 'center', color: theme.colors.primary, fontWeight: '600' }}>
-                                            {occurrence === 'Twice a Month' || occurrence === 'Twice a Week' ? 'Select 2 days' :
-                                                (occurrence === 'Every Month' || occurrence === 'Installments' || occurrence === 'Every Week') ? 'Select 1 day' :
-                                                    'Select day(s)'}
-                                        </Text>
-
-                                        <Divider style={{ marginBottom: 10 }} />
-
-                                        <ScrollView contentContainerStyle={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', paddingBottom: 40 }}>
-                                            {occurrence.includes('Week') ? (
-                                                // Weekly View
-                                                WEEKDAYS.map((day, index) => {
-                                                    const isSelected = dueDays.includes(index);
-                                                    return (
-                                                        <TouchableOpacity
-                                                            key={day}
-                                                            style={[
-                                                                styles.dayItem,
-                                                                { backgroundColor: isSelected ? theme.colors.primaryContainer : theme.colors.surfaceVariant }
-                                                            ]}
-                                                            onPress={() => {
-                                                                let newDays = [...dueDays];
-                                                                if (isSelected) {
-                                                                    newDays = newDays.filter(d => d !== index);
-                                                                } else {
-                                                                    // Constraints
-                                                                    if (occurrence === 'Every Week' && newDays.length >= 1) {
-                                                                        // If purely single select, replace. 
-                                                                        // But prompt said "select more than once day" for "Twice a month or every other week".
-                                                                        // For "Every Week", usually single. Let's enforce single for Every Week.
-                                                                        newDays = [index];
-                                                                    } else {
-                                                                        newDays.push(index);
-                                                                    }
-                                                                }
-                                                                // Special handling for Twice a Week in Week view (which is this block)
-                                                                if (occurrence === 'Twice a Week') {
-                                                                    // Enforce max 2
-                                                                    if (newDays.length > 2) {
-                                                                        newDays.shift();
-                                                                    }
-                                                                }
-                                                                newDays.sort((a, b) => a - b);
-                                                                setDueDays(newDays);
-                                                            }}
-                                                        >
-                                                            <Text style={{ color: isSelected ? theme.colors.onPrimaryContainer : theme.colors.onSurfaceVariant }}>{day}</Text>
-                                                        </TouchableOpacity>
-                                                    );
-                                                })
-                                            ) : (
-                                                // Monthly View
-                                                Array.from({ length: 31 }, (_, i) => i + 1).map((day) => {
-                                                    const isSelected = dueDays.includes(day);
-                                                    return (
-                                                        <TouchableOpacity
-                                                            key={day}
-                                                            style={[
-                                                                styles.dayItem,
-                                                                {
-                                                                    backgroundColor: isSelected ? theme.colors.primaryContainer : theme.colors.surfaceVariant,
-                                                                    width: 50, height: 50, borderRadius: 25
-                                                                }
-                                                            ]}
-                                                            onPress={() => {
-                                                                let newDays = [...dueDays];
-                                                                if (isSelected) {
-                                                                    newDays = newDays.filter(d => d !== day);
-                                                                } else {
-                                                                    if (occurrence === 'Every Month' || occurrence === 'Installments') {
-                                                                        newDays = [day];
-                                                                    } else if (occurrence === 'Twice a Month' || occurrence === 'Twice a Week') {
-                                                                        if (newDays.length >= 2) {
-                                                                            newDays.shift();
-                                                                            newDays.push(day);
-                                                                        } else {
-                                                                            newDays.push(day);
-                                                                        }
-                                                                    } else {
-                                                                        newDays.push(day);
-                                                                    }
-                                                                }
-                                                                newDays.sort((a, b) => a - b);
-                                                                setDueDays(newDays);
-                                                            }}
-                                                        >
-                                                            <Text style={{ color: isSelected ? theme.colors.onPrimaryContainer : theme.colors.onSurfaceVariant }}>{day}</Text>
-                                                        </TouchableOpacity>
-                                                    );
-                                                })
-                                            )}
-                                        </ScrollView>
-                                    </View>
-                                </View>
-                            </Modal>
-
-                            {/* Category Selection */}
-                            <TouchableOpacity
-                                onPress={() => setShowCategoryMenu(true)}
-                                activeOpacity={0.7}
-                            >
-                                <View pointerEvents="none">
-                                    <TextInput
-                                        label="Category"
-                                        value={category}
-                                        mode="outlined"
-                                        style={styles.input}
-                                        editable={false}
-                                        right={<TextInput.Icon icon="chevron-down" />}
-                                    />
-                                </View>
-                            </TouchableOpacity>
-
-                            {/* Custom Category Input */}
-                            {category === 'Custom' && (
+                            {form.category === 'Custom' && (
                                 <TextInput
                                     label="Custom Category Name"
-                                    value={customCategory}
-                                    onChangeText={setCustomCategory}
+                                    value={form.customCategory}
+                                    onChangeText={form.setCustomCategory}
                                     mode="outlined"
-                                    style={styles.input}
+                                    style={formStyles.input}
                                     placeholder="e.g. Server Hosting"
                                 />
                             )}
@@ -952,201 +132,103 @@ export default function AddBillScreen() {
                             <View style={styles.switchRow}>
                                 <Text variant="bodyLarge">Is Paid</Text>
                                 <Switch
-                                    value={isPaid}
-                                    onValueChange={setIsPaid}
+                                    value={form.isPaid}
+                                    onValueChange={form.setIsPaid}
                                     trackColor={{ false: '#767577', true: theme.colors.primary }}
                                     thumbColor={Platform.OS === 'ios' ? undefined : '#f4f3f4'}
                                 />
                             </View>
 
-                            {/* Recurring Payment switch removed: isRecurring/setIsRecurring not defined */}
-
                             <View style={styles.checkboxRow}>
                                 <Checkbox.Android
-                                    status={isCleared ? 'checked' : 'unchecked'}
-                                    onPress={() => setIsCleared(!isCleared)}
+                                    status={form.isCleared ? 'checked' : 'unchecked'}
+                                    onPress={() => form.setIsCleared(!form.isCleared)}
                                     color={theme.colors.primary}
                                 />
-                                <TouchableOpacity onPress={() => setIsCleared(!isCleared)}>
+                                <TouchableOpacity onPress={() => form.setIsCleared(!form.isCleared)}>
                                     <Text variant="bodyLarge">Payment Cleared</Text>
                                 </TouchableOpacity>
                             </View>
 
                             <Divider style={{ marginVertical: 16 }} />
 
-                            <View>
-                                <TextInput
-                                    label="Notes"
-                                    value={notes}
-                                    onChangeText={handleNotesChange}
-                                    onBlur={() => validateFieldWithDebounce('notes', notes)}
-                                    mode="outlined"
-                                    multiline
-                                    numberOfLines={4}
-                                    style={[styles.input, { minHeight: 100 }]}
-                                    placeholder="Add notes about this bill..."
-                                    error={!!fieldErrors.notes}
-                                />
-                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 4, marginBottom: 12 }}>
-                                    <Text variant="bodySmall" style={{ color: fieldErrors.notes ? theme.colors.error : theme.colors.onSurfaceVariant }}>
-                                        {fieldErrors.notes}
-                                    </Text>
-                                    <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
-                                        {notes.length}/500
-                                    </Text>
-                                </View>
-                            </View>
-
-
+                            <CountedInput
+                                label="Notes"
+                                value={form.notes}
+                                maxLength={500}
+                                onChangeText={form.changeNotes}
+                                onBlur={() => form.validateField('notes', form.notes)}
+                                multiline
+                                numberOfLines={4}
+                                style={{ minHeight: 100 }}
+                                placeholder="Add notes about this bill..."
+                                errorText={fieldErrors.notes}
+                            />
                         </Card.Content>
-                        {/* Category Picker Modal */}
-                        <Modal
-                            visible={showCategoryMenu}
-                            transparent={true}
-                            animationType="slide"
-                            onRequestClose={() => setShowCategoryMenu(false)}
-                        >
-                            <View style={styles.modalOverlay}>
-                                <View style={[styles.modalContent, { backgroundColor: theme.colors.surface }]}>
-                                    <View style={styles.modalHeader}>
-                                        <Text variant="titleLarge" style={{ fontWeight: 'bold' }}>Select Category</Text>
-                                        <IconButton
-                                            icon="close"
-                                            onPress={() => setShowCategoryMenu(false)}
-                                        />
-                                    </View>
-                                    <Divider />
-                                    <FlatList
-                                        data={CATEGORIES}
-                                        keyExtractor={(item: string) => item}
-                                        renderItem={({ item }: { item: string }) => (
-                                            <TouchableOpacity
-                                                style={styles.categoryItem}
-                                                onPress={() => {
-                                                    setCategory(item);
-                                                    setShowCategoryMenu(false);
-                                                    validateFieldWithDebounce('category', item);
-                                                }}
-                                            >
-                                                <Text variant="bodyLarge">{item}</Text>
-                                                {category === item && (
-                                                    <IconButton icon="check" iconColor={theme.colors.primary} />
-                                                )}
-                                            </TouchableOpacity>
-                                        )}
-                                        ItemSeparatorComponent={() => <Divider />}
-                                        contentContainerStyle={{ paddingBottom: 40 }}
-                                    />
-                                </View>
-                            </View>
-                        </Modal>
                     </Card>
 
                     <Button
                         mode="contained"
-                        loading={saving}
-                        disabled={saving}
-                        onPress={handleSave}
+                        loading={form.saving}
+                        disabled={form.saving}
+                        onPress={form.save}
                         style={styles.saveButton}
                         contentStyle={styles.saveButtonContent}
                     >
-                        {isEdit ? 'Update Bill' : 'Add Bill'}
+                        {form.isEdit ? 'Update Bill' : 'Add Bill'}
                     </Button>
 
-                    <Button
-                        mode="text"
-                        onPress={() => router.back()}
-                        style={styles.cancelButton}
-                    >
+                    <Button mode="text" onPress={form.goBack} style={styles.cancelButton}>
                         Cancel
                     </Button>
                 </ScrollView>
 
-                {/* Snackbar for success/error feedback */}
                 <Snackbar
-                    visible={snackbarVisible}
-                    onDismiss={() => setSnackbarVisible(false)}
-                    duration={snackbarType === 'success' ? 2000 : 4000}
-                    style={{ backgroundColor: snackbarType === 'success' ? theme.colors.primary : theme.colors.error }}
+                    visible={form.snackbar.visible}
+                    onDismiss={form.dismissSnackbar}
+                    duration={form.snackbar.type === 'success' ? 2000 : 4000}
+                    style={{ backgroundColor: form.snackbar.type === 'success' ? theme.colors.primary : theme.colors.error }}
                 >
-                    <Text style={{ color: '#fff' }}>{snackbarMessage}</Text>
+                    <Text style={{ color: '#fff' }}>{form.snackbar.message}</Text>
                 </Snackbar>
 
-                {/* Recurrence Change Warning Dialog */}
-                {showRecurrenceWarning && recurrenceWarningData && (
-                    <Modal
-                        visible={showRecurrenceWarning}
-                        transparent={true}
-                        animationType="fade"
-                        onRequestClose={() => setShowRecurrenceWarning(false)}
-                    >
-                        <View style={[styles.modalOverlay, { justifyContent: 'center', paddingHorizontal: 20 }]}>
-                            <View style={[styles.modalContent, { backgroundColor: theme.colors.surface, padding: 24, borderRadius: 12 }]}>
-                                <Text variant="titleLarge" style={{ marginBottom: 16, fontWeight: 'bold' }}>
-                                    Change Recurrence?
-                                </Text>
-                                <Text variant="bodyMedium" style={{ marginBottom: 24, color: theme.colors.onSurfaceVariant }}>
-                                    Changing recurrence will reschedule all future occurrences from {recurrenceWarningData.oldType} to {recurrenceWarningData.newType}. This cannot be undone. Continue?
-                                </Text>
-                                <View style={{ flexDirection: 'row', gap: 12, justifyContent: 'flex-end' }}>
-                                    <Button
-                                        mode="outlined"
-                                        onPress={() => {
-                                            setShowRecurrenceWarning(false);
-                                            setOccurrence(editingBill?.occurrence || 'One Time');
-                                            setDueDays(editingBill?.dueDays || []);
-                                        }}
-                                    >
-                                        Cancel
-                                    </Button>
-                                    <Button
-                                        mode="contained"
-                                        onPress={async () => {
-                                            setShowRecurrenceWarning(false);
-                                            setSaving(true);
-                                            try {
-                                                const finalDueDate = formatDate(date);
-                                                const finalCategory = category === 'Custom' ? customCategory : category;
-
-                                                if (isEdit && id) {
-                                                    await updateBill(id, {
-                                                        title,
-                                                        amount: formatAmount(occurrence === 'Installments' ? amount : amount),
-                                                        dueDate: finalDueDate,
-                                                        category: finalCategory,
-                                                        isPaid,
-                                                        isCleared,
-                                                        occurrence,
-                                                        dueDays,
-                                                        totalInstallments: occurrence === 'Installments' ? parseInt(totalInstallments) || 0 : undefined,
-                                                        paidInstallments: occurrence === 'Installments' ? parseInt(paidInstallments) || 0 : undefined,
-                                                        totalInstallmentAmount: occurrence === 'Installments' ? formatAmount(installmentTotalAmount) : undefined,
-                                                        installmentStartDate: occurrence === 'Installments' ? formatDate(installmentStartDate) : undefined,
-                                                        installmentEndDate: occurrence === 'Installments' ? installmentEndDate : undefined,
-                                                        installmentRecurrence: occurrence === 'Installments' ? installmentRecurrence : undefined,
-                                                        remainingBalance: occurrence === 'Installments' ? formatAmount((parseFloat(installmentTotalAmount) || 0) - ((parseFloat(amount) || 0) * (parseInt(paidInstallments) || 0))) : undefined,
-                                                        notes,
-                                                    });
-                                                    showSnackbar('Bill updated', 'success');
-                                                }
-                                                setTimeout(() => router.back(), 2000);
-                                            } catch (error) {
-                                                console.error('Failed to save bill:', error);
-                                                showSnackbar('Failed to save bill', 'error');
-                                            } finally {
-                                                setSaving(false);
-                                            }
-                                        }}
-                                    >
-                                        Continue
-                                    </Button>
-                                </View>
-                            </View>
-                        </View>
-                    </Modal>
-                )}
+                <PickerModal
+                    visible={showOccurrencePicker}
+                    title="Select Occurrence"
+                    options={OCCURRENCES}
+                    selected={occurrence}
+                    onSelect={form.changeOccurrence}
+                    onClose={() => setShowOccurrencePicker(false)}
+                />
+                <PickerModal
+                    visible={showCategoryPicker}
+                    title="Select Category"
+                    options={CATEGORIES}
+                    selected={form.category}
+                    onSelect={form.changeCategory}
+                    onClose={() => setShowCategoryPicker(false)}
+                />
+                <DayPickerModal
+                    visible={showDayPicker}
+                    occurrence={occurrence}
+                    dueDays={form.dueDays}
+                    onChange={form.setDueDays}
+                    onClose={() => setShowDayPicker(false)}
+                />
+                <DatePickerModal
+                    visible={showStartDatePicker}
+                    title="Select Start Date"
+                    value={form.installmentStartDate}
+                    onChange={form.setInstallmentStartDate}
+                    onClose={() => setShowStartDatePicker(false)}
+                />
+                <RecurrenceWarningModal
+                    change={form.recurrenceWarning}
+                    onCancel={form.cancelRecurrenceChange}
+                    onConfirm={form.confirmRecurrenceChange}
+                />
             </KeyboardAvoidingView>
-        </SafeAreaView >
+        </SafeAreaView>
     );
 }
 
@@ -1156,6 +238,7 @@ const styles = StyleSheet.create({
     },
     content: {
         padding: 20,
+        paddingBottom: 150,
     },
     title: {
         fontWeight: 'bold',
@@ -1163,9 +246,6 @@ const styles = StyleSheet.create({
     },
     formCard: {
         marginBottom: 24,
-    },
-    input: {
-        marginBottom: 16,
     },
     saveButton: {
         borderRadius: 12,
@@ -1177,30 +257,6 @@ const styles = StyleSheet.create({
     cancelButton: {
         marginTop: 8,
     },
-    modalOverlay: {
-        flex: 1,
-        backgroundColor: 'rgba(0,0,0,0.5)',
-        justifyContent: 'flex-end',
-    },
-    modalContent: {
-        borderTopLeftRadius: 24,
-        borderTopRightRadius: 24,
-        padding: 20,
-        height: '70%',
-    },
-    modalHeader: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: 10,
-    },
-    categoryItem: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        paddingVertical: 15,
-        paddingHorizontal: 10,
-    },
     switchRow: {
         flexDirection: 'row',
         justifyContent: 'space-between',
@@ -1211,28 +267,4 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
     },
-    dayItem: {
-        width: 60,
-        height: 60,
-        justifyContent: 'center',
-        alignItems: 'center',
-        margin: 8,
-        borderRadius: 12,
-    },
-    infoBox: {
-        padding: 16,
-        borderRadius: 12,
-        alignItems: 'center',
-        marginTop: 8,
-        marginBottom: 16,
-        borderWidth: 1,
-        borderStyle: 'dashed',
-    },
-    historyRecord: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        padding: 12,
-        borderRadius: 12,
-        borderWidth: 1,
-    }
 });
